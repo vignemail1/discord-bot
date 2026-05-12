@@ -1,6 +1,6 @@
 // cmd/bot est le point d'entrée du bot Discord.
-// Étape 1 : bootstrap config + DB + migrations.
-// La connexion Gateway Discord sera ajoutée à l'étape 2.
+// Étape 2 : connexion Gateway Discord, événements READY + GUILD_CREATE/DELETE,
+// persistance des guildes, graceful shutdown.
 package main
 
 import (
@@ -10,25 +10,31 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/vignemail1/discord-bot/internal/bot"
 	"github.com/vignemail1/discord-bot/internal/config"
 	"github.com/vignemail1/discord-bot/internal/db"
+	"github.com/vignemail1/discord-bot/internal/repository/mariadb"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("config: échec du chargement", "err", err)
+		slog.Error("config: échec", "err", err)
 		os.Exit(1)
 	}
-
 	setLogLevel(cfg.LogLevel)
+
+	if cfg.DiscordBotToken == "" {
+		slog.Error("config: DISCORD_BOT_TOKEN manquant")
+		os.Exit(1)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Connexion base de données.
 	conn, err := db.Connect(ctx, cfg.DSN())
 	if err != nil {
 		slog.Error("db: connexion échouée", "err", err)
@@ -36,16 +42,29 @@ func main() {
 	}
 	defer conn.Close()
 
+	// Migrations.
 	if err = db.RunMigrations(conn, "./migrations"); err != nil {
 		slog.Error("migrations: échec", "err", err)
 		os.Exit(1)
 	}
 
-	slog.Info("bot: prêt (connexion Gateway à venir à l'étape 2)")
+	// Wiring des dépendances.
+	guildRepo := mariadb.NewGuildRepo(conn)
+	handler := bot.NewHandler(guildRepo)
 
-	// Attendre le signal d'arrêt.
-	<-ctx.Done()
-	slog.Info("bot: arrêt demandé")
+	session, err := bot.New(cfg.DiscordBotToken, handler)
+	if err != nil {
+		slog.Error("bot: création session échouée", "err", err)
+		os.Exit(1)
+	}
+
+	// Connexion Gateway (bloquant jusqu'à l'arrêt du contexte).
+	if err = session.Open(ctx); err != nil {
+		slog.Error("bot: Gateway err", "err", err)
+		os.Exit(1)
+	}
+
+	slog.Info("bot: arrêt propre")
 }
 
 func setLogLevel(level string) {

@@ -15,22 +15,27 @@ const (
 	reconnectMaxDelay = 2 * time.Minute
 )
 
-// Session encapsule la connexion discordgo et expose l'objet *discordgo.Session
-// pour que les handlers et le dispatcher puissent l'utiliser.
+// Session encapsule la connexion discordgo.
 type Session struct {
 	DG      *discordgo.Session
 	handler *Handler
 }
 
 // New crée une nouvelle Session bot avec les intents requis.
-// Elle n'ouvre pas encore la connexion Gateway.
+// Ne connecte pas encore la Gateway.
 func New(token string, h *Handler) (*Session, error) {
+	if token == "" {
+		return nil, fmt.Errorf("bot: token Discord vide")
+	}
+
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, fmt.Errorf("bot: création session discordgo: %w", err)
 	}
 
-	// Intents explicites — GUILD_MEMBERS et MESSAGE_CONTENT sont privileged.
+	// Intents explicites.
+	// GUILD_MEMBERS et MESSAGE_CONTENT sont "Privileged" et doivent être
+	// activés manuellement sur le Discord Developer Portal.
 	dg.Identify.Intents = discordgo.IntentsGuilds |
 		discordgo.IntentsGuildMembers |
 		discordgo.IntentsGuildMessages |
@@ -38,7 +43,7 @@ func New(token string, h *Handler) (*Session, error) {
 
 	s := &Session{DG: dg, handler: h}
 
-	// Enregistrement des handlers d'événements Gateway.
+	// Enregistrement des handlers Gateway.
 	dg.AddHandler(s.handler.onReady)
 	dg.AddHandler(s.handler.onGuildCreate)
 	dg.AddHandler(s.handler.onGuildDelete)
@@ -47,35 +52,37 @@ func New(token string, h *Handler) (*Session, error) {
 }
 
 // Open ouvre la connexion Gateway et bloque jusqu'à l'annulation du contexte.
-// En cas de déconnexion inattendue, elle tente de se reconnecter avec backoff.
+// Reconnexion automatique avec backoff exponentiel plafonné à 2 minutes.
 func (s *Session) Open(ctx context.Context) error {
 	delay := reconnectDelay
 
 	for {
+		// Vérifier l'annulation avant chaque tentative.
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
 		if err := s.DG.Open(); err != nil {
 			slog.Error("bot: connexion Gateway échouée", "err", err, "retry_in", delay)
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-time.After(delay):
-				delay = min(delay*2, reconnectMaxDelay)
+				delay = minDuration(delay*2, reconnectMaxDelay)
 				continue
 			}
 		}
 
 		slog.Info("bot: Gateway connectée")
-		delay = reconnectDelay // reset backoff
+		delay = reconnectDelay // reset backoff après succès
 
-		// Attendre la déconnexion ou l'arrêt.
-		select {
-		case <-ctx.Done():
-			_ = s.DG.Close()
-			slog.Info("bot: Gateway fermée proprement")
-			return nil
-		case <-s.DG.State.Ready.ReadyChan():
-			// Cas théorique : le chan Ready n'est pas exposé directement.
-			// On reste bloqué sur ctx.Done() dans la pratique.
-		}
+		// Attendre l'arrêt du contexte.
+		<-ctx.Done()
+		_ = s.DG.Close()
+		slog.Info("bot: Gateway fermée proprement")
+		return nil
 	}
 }
 
@@ -84,7 +91,7 @@ func (s *Session) Close() error {
 	return s.DG.Close()
 }
 
-func min(a, b time.Duration) time.Duration {
+func minDuration(a, b time.Duration) time.Duration {
 	if a < b {
 		return a
 	}
