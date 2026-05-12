@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/vignemail1/discord-bot/internal/module"
 )
 
 const (
@@ -17,13 +19,14 @@ const (
 
 // Session encapsule la connexion discordgo.
 type Session struct {
-	DG      *discordgo.Session
-	handler *Handler
+	DG         *discordgo.Session
+	handler    *Handler
+	dispatcher *module.Dispatcher
 }
 
 // New crée une nouvelle Session bot avec les intents requis.
 // Ne connecte pas encore la Gateway.
-func New(token string, h *Handler) (*Session, error) {
+func New(token string, h *Handler, disp *module.Dispatcher) (*Session, error) {
 	if token == "" {
 		return nil, fmt.Errorf("bot: token Discord vide")
 	}
@@ -34,19 +37,21 @@ func New(token string, h *Handler) (*Session, error) {
 	}
 
 	// Intents explicites.
-	// GUILD_MEMBERS et MESSAGE_CONTENT sont "Privileged" et doivent être
-	// activés manuellement sur le Discord Developer Portal.
+	// GUILD_MEMBERS et MESSAGE_CONTENT sont "Privileged" — activer sur Developer Portal.
 	dg.Identify.Intents = discordgo.IntentsGuilds |
 		discordgo.IntentsGuildMembers |
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentMessageContent
 
-	s := &Session{DG: dg, handler: h}
+	s := &Session{DG: dg, handler: h, dispatcher: disp}
 
-	// Enregistrement des handlers Gateway.
-	dg.AddHandler(s.handler.onReady)
-	dg.AddHandler(s.handler.onGuildCreate)
-	dg.AddHandler(s.handler.onGuildDelete)
+	// Handlers d'événements Guild.
+	dg.AddHandler(h.onReady)
+	dg.AddHandler(h.onGuildCreate)
+	dg.AddHandler(h.onGuildDelete)
+
+	// Dispatcher de messages.
+	dg.AddHandler(disp.OnMessageCreate)
 
 	return s, nil
 }
@@ -57,7 +62,6 @@ func (s *Session) Open(ctx context.Context) error {
 	delay := reconnectDelay
 
 	for {
-		// Vérifier l'annulation avant chaque tentative.
 		select {
 		case <-ctx.Done():
 			return nil
@@ -76,9 +80,8 @@ func (s *Session) Open(ctx context.Context) error {
 		}
 
 		slog.Info("bot: Gateway connectée")
-		delay = reconnectDelay // reset backoff après succès
+		delay = reconnectDelay
 
-		// Attendre l'arrêt du contexte.
 		<-ctx.Done()
 		_ = s.DG.Close()
 		slog.Info("bot: Gateway fermée proprement")
@@ -86,10 +89,7 @@ func (s *Session) Open(ctx context.Context) error {
 	}
 }
 
-// Close ferme la connexion Gateway.
-func (s *Session) Close() error {
-	return s.DG.Close()
-}
+func (s *Session) Close() error { return s.DG.Close() }
 
 func minDuration(a, b time.Duration) time.Duration {
 	if a < b {
