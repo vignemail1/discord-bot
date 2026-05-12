@@ -17,13 +17,14 @@ import (
 
 // Server est le serveur HTTP du dashboard.
 type Server struct {
-	cfg        *config.Config
-	sessions   *SessionStore
-	guildRepo  repository.GuildRepository
-	moduleRepo repository.ModuleRepository
-	auditRepo  repository.AuditRepository
-	httpClient *http.Client
-	server     *http.Server
+	cfg          *config.Config
+	sessions     *SessionStore
+	guildRepo    repository.GuildRepository
+	moduleRepo   repository.ModuleRepository
+	auditRepo    repository.AuditRepository
+	identityRepo repository.IdentityRepository
+	httpClient   *http.Client
+	server       *http.Server
 }
 
 // NewServer crée un Server initialisé mais non démarré.
@@ -32,14 +33,16 @@ func NewServer(
 	guildRepo repository.GuildRepository,
 	moduleRepo repository.ModuleRepository,
 	auditRepo repository.AuditRepository,
+	identityRepo repository.IdentityRepository,
 ) *Server {
 	srv := &Server{
-		cfg:        cfg,
-		sessions:   NewSessionStore(),
-		guildRepo:  guildRepo,
-		moduleRepo: moduleRepo,
-		auditRepo:  auditRepo,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		cfg:          cfg,
+		sessions:     NewSessionStore(),
+		guildRepo:    guildRepo,
+		moduleRepo:   moduleRepo,
+		auditRepo:    auditRepo,
+		identityRepo: identityRepo,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 
 	r := chi.NewRouter()
@@ -54,7 +57,7 @@ func NewServer(
 	r.Get("/auth/callback", srv.handleCallback)
 	r.Get("/auth/logout", srv.handleLogout)
 
-	// Routes protégées (session authentifiée obligatoire).
+	// Routes protégées.
 	r.Group(func(r chi.Router) {
 		r.Use(srv.requireAuth)
 
@@ -70,6 +73,10 @@ func NewServer(
 
 		// Audit log.
 		r.Get("/guilds/{guildID}/audit", srv.handleListAudit)
+
+		// Identity history.
+		r.Get("/guilds/{guildID}/identity", srv.handleListIdentity)
+		r.Get("/guilds/{guildID}/identity/{userID}", srv.handleGetMemberIdentity)
 	})
 
 	srv.server = &http.Server{
