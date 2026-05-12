@@ -144,7 +144,7 @@ GET /guilds/{id}/identity/{userID}?limit=50&before=<id>&type=<event_type>
 
 ### Métriques Prometheus
 
-Exposeé sur `GET /metrics`. Métriques disponibles :
+Exposées sur `GET /metrics`. Métriques disponibles :
 
 | Métrique | Type | Description |
 |---|---|---|

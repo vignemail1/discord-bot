@@ -32,7 +32,7 @@ Le projet est un **bot Discord de modération multi-guilde** écrit en Go. Il re
 
 - **`cmd/bot`** — Connexion Gateway Discord, dispatch d'événements, exécution des modules.
 - **`cmd/web`** — Dashboard HTTP d'administration (authentification, configuration, audit log).
-- **`internal/`** — Logique partagée : config, modules, repository MariaDB, sessions, audit.
+- **`internal/`** — Logique partagée : config, modules, repository MariaDB, cache, audit.
 
 Chaque guilde Discord dispose de sa propre configuration isolée en base. Un moteur de modules générique permet d'activer/désactiver et de configurer chaque fonctionnalité indépendamment, par serveur. Les modules initiaux sont `invite_filter` et `identity_history` ; d'autres peuvent être ajoutés sans modifier le cœur du bot.
 
@@ -48,7 +48,8 @@ Chaque guilde Discord dispose de sa propre configuration isolée en base. Un mot
                                │                       │
                     ┌──────────▼───────────────────────▼──────────┐
                     │               internal/                      │
-                    │  config · modules · repository · audit       │
+                    │  config · cache · modules · repository       │
+                    │  audit                                       │
                     └──────────────────────┬──────────────────────┘
                                            │
                                ┌───────────▼──────────┐
@@ -101,6 +102,8 @@ discord-bot/
 ├── internal/
 │   ├── config/
 │   │   └── config.go                # Lecture des variables d'environnement
+│   ├── cache/
+│   │   └── cache.go                 # GuildConfigCache (sync.Map, TTL, invalidation)
 │   ├── db/
 │   │   ├── db.go                    # Connexion MariaDB, pool, retry
 │   │   └── migrations.go            # Chargement et application des migrations
@@ -111,24 +114,37 @@ discord-bot/
 │   │   ├── identity_history.go      # Repository module identity_history
 │   │   └── audit.go                 # Écriture audit log
 │   ├── module/
-│   │   ├── module.go                # Interface Module + registre
+│   │   ├── module.go                # Interfaces Module, MemberUpdateHandler, UserUpdateHandler + HandlerFunc
 │   │   ├── dispatcher.go            # Dispatch événements aux modules actifs
-│   │   ├── invite_filter/
-│   │   │   ├── invite_filter.go     # Logique métier
+│   │   ├── invitefilter/            # (package invitefilter, sans underscore)
+│   │   │   ├── invite_filter.go
 │   │   │   └── invite_filter_test.go
-│   │   └── identity_history/
-│   │       ├── identity_history.go  # Logique métier
-│   │       └── identity_history_test.go
+│   │   └── identityhistory/         # (package identityhistory, sans underscore)
+│   │       ├── config.go
+│   │       ├── module.go
+│   │       ├── purger.go
+│   │       ├── repository.go
+│   │       ├── module_test.go
+│   │       ├── purger_test.go
+│   │       └── repository_test.go
 │   ├── bot/
 │   │   ├── session.go               # Connexion Discord Gateway, reconnect
 │   │   └── handlers.go              # Handlers Gateway → Dispatcher
 │   ├── web/
-│   │   ├── server.go                # Serveur HTTP chi
+│   │   ├── server.go                # Serveur HTTP chi, routing
+│   │   ├── context.go               # Clés de contexte HTTP
+│   │   ├── context_util.go          # Helpers d'extraction de contexte
 │   │   ├── middleware.go            # Auth, logging, CSRF
+│   │   ├── security.go              # Security headers
+│   │   ├── ratelimit.go             # Rate limiting par IP (token bucket)
+│   │   ├── metrics.go               # Métriques Prometheus + middleware
+│   │   ├── health.go                # Handler /healthz
 │   │   ├── oauth2.go                # Flux OAuth2 Discord
+│   │   ├── session.go               # SessionStore en mémoire
 │   │   ├── handlers_guild.go        # Routes guildes
 │   │   ├── handlers_module.go       # Routes config modules
-│   │   └── handlers_audit.go        # Routes audit log
+│   │   ├── handlers_audit.go        # Routes audit log
+│   │   └── handlers_identity.go     # Routes identity history
 │   └── audit/
 │       └── audit.go                 # Service d'audit log
 ├── migrations/
@@ -138,9 +154,6 @@ discord-bot/
 │   ├── 000002_module_invite_filter.down.sql
 │   ├── 000003_module_identity_history.up.sql
 │   └── 000003_module_identity_history.down.sql
-├── deploy/
-│   └── mariadb/
-│       └── init/                    # Scripts optionnels init MariaDB
 ├── Dockerfile.bot
 ├── Dockerfile.web
 ├── docker-compose.yml
@@ -314,7 +327,7 @@ Le bot se connecte via la Gateway Discord WebSocket avec `discordgo`. La session
 
 Au démarrage, Discord envoie un événement `GUILD_CREATE` pour chaque guilde où le bot est présent. Le handler persiste ou met à jour chaque guilde dans `guilds`, puis charge la configuration des modules en mémoire.
 
-La config est mise en cache par `guild_id` dans une `sync.Map`. La DB reste la source de vérité ; le cache est invalidé à chaque modification depuis le dashboard.
+La config est mise en cache par `guild_id` dans un `GuildConfigCache` (wrapper `sync.Map` avec TTL). La DB reste la source de vérité ; le cache est invalidé à chaque modification depuis le dashboard.
 
 ### Flux d'un événement
 
@@ -328,7 +341,8 @@ Discord Gateway
   dispatcher.go         — itère sur les modules actifs pour la guild_id
        │
        ├──► invite_filter.HandleMessage(ctx, event)
-       ├──► identity_history.HandleMemberUpdate(ctx, event)
+       ├──► identity_history.HandleMemberUpdate(ctx, event)   [GUILD_MEMBER_UPDATE]
+       ├──► identity_history.HandleUserUpdate(ctx, event)     [USER_UPDATE, toutes guildes]
        └──► [modules futurs]
 ```
 
@@ -336,29 +350,34 @@ Discord Gateway
 
 ## 7. Moteur de modules
 
-### Interface Module
+### Interfaces
 
 ```go
-// Module est l'interface que tout module doit implémenter.
+// Module est le contrat de base implémenté par chaque module.
 type Module interface {
     // Name retourne le nom unique du module (ex : "invite_filter").
+    // Doit correspondre exactement au module_name en base de données.
     Name() string
-    // Configure initialise ou recharge la config d'un module pour une guilde.
-    Configure(ctx context.Context, guildID string, config json.RawMessage) error
-    // Hooks déclare les types d'événements Gateway que ce module consomme.
-    Hooks() []HookType
+
+    // HandleMessage est appelé par le Dispatcher pour chaque message reçu
+    // sur une guilde où ce module est actif.
+    HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate, cfg *cache.GuildConfig) error
 }
 
-type HookType string
+// MemberUpdateHandler est implémenté par les modules qui consomment GUILD_MEMBER_UPDATE.
+type MemberUpdateHandler interface {
+    HandleMemberUpdate(ctx context.Context, s *discordgo.Session, ev *discordgo.GuildMemberUpdate, cfg *cache.GuildConfig) error
+}
 
-const (
-    HookMessageCreate     HookType = "MESSAGE_CREATE"
-    HookGuildMemberAdd    HookType = "GUILD_MEMBER_ADD"
-    HookGuildMemberUpdate HookType = "GUILD_MEMBER_UPDATE"
-    HookGuildMembersChunk HookType = "GUILD_MEMBERS_CHUNK"
-    HookUserUpdate        HookType = "USER_UPDATE"
-)
+// UserUpdateHandler est implémenté par les modules qui consomment USER_UPDATE.
+// USER_UPDATE est global (pas de guild_id) ; le dispatcher réplique l'appel
+// pour chaque guilde active où ce module est activé.
+type UserUpdateHandler interface {
+    HandleUserUpdate(ctx context.Context, s *discordgo.Session, ev *discordgo.UserUpdate, guildID string, cfg *cache.GuildConfig) error
+}
 ```
+
+Les interfaces `MemberUpdateHandler` et `UserUpdateHandler` sont **optionnelles** : le dispatcher les détecte via une assertion de type (`mod.(MemberUpdateHandler)`) et ne les appelle que si le module les implémente. Cela permet d'ajouter de nouveaux types d'événements sans modifier les modules existants.
 
 ### Registre
 
@@ -395,9 +414,10 @@ Le code extrait est vérifié contre `allowed_invite_codes` et `allowed_guild_id
 {
   "allowed_invite_codes": ["abc123"],
   "allowed_guild_ids":    ["123456789012345678"],
-  "timeout_duration_h":   24,
+  "timeout_duration":     "24h",
   "ban_threshold":        3,
-  "delete_message":       true
+  "whitelist_role_ids":   [],
+  "whitelist_user_ids":   []
 }
 ```
 
@@ -441,7 +461,7 @@ Avatar de membre: https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/a
 
 ### Rétention
 
-Chaque guilde configure `retention_days` (0 = illimité). Une goroutine de purge s'exécute périodiquement et supprime les événements expirés.
+Chaque guilde configure `retention_days` (0 = illimité). Une goroutine de purge (`Purger`) s'exécute périodiquement et supprime les événements expirés de la table `guild_member_identity_events`.
 
 ---
 
@@ -450,17 +470,20 @@ Chaque guilde configure `retention_days` (0 = illimité). Une goroutine de purge
 ### Routes
 
 ```
+# Publiques
 GET  /healthz
-GET  /login
-GET  /callback
-GET  /logout
+GET  /metrics
+GET  /auth/login
+GET  /auth/callback
+GET  /auth/logout
 
+# Protégées (session valide requise)
 GET  /guilds
 GET  /guilds/{guildID}
 POST /guilds/{guildID}/install
 GET  /guilds/{guildID}/modules
-PUT  /guilds/{guildID}/modules/{name}
-PUT  /guilds/{guildID}/modules/{name}/config
+PUT  /guilds/{guildID}/modules/{moduleName}
+PUT  /guilds/{guildID}/modules/{moduleName}/config
 
 GET  /guilds/{guildID}/audit
 GET  /guilds/{guildID}/identity
@@ -469,8 +492,18 @@ GET  /guilds/{guildID}/identity/{userID}
 
 ### Autorisation
 
-- Toutes les routes (sauf `/healthz`, `/login`, `/callback`) nécessitent une session valide.
+- Toutes les routes protégées nécessitent une session valide.
 - Pour chaque requête sur une guilde, vérification que l'utilisateur connecté en est gestionnaire (`manage_guild` dans le scope `guilds` Discord).
+
+### Middlewares
+
+| Middleware | Rôle |
+|---|---|
+| `slogRequest` | Log structuré JSON de chaque requête |
+| `securityHeaders` | Headers HTTP de sécurité (CSP, X-Frame-Options, etc.) |
+| `metricsMiddleware` | Comptage des requêtes et durées (Prometheus) |
+| `RateLimitMiddleware` | Token bucket par IP (20 req/s, burst 50) |
+| `requireAuth` | Vérification de la session sur les routes protégées |
 
 ---
 
@@ -479,13 +512,13 @@ GET  /guilds/{guildID}/identity/{userID}
 ### Auth utilisateur (accès dashboard)
 
 ```
-1. GET /login
+1. GET /auth/login
    → 302 discord.com/oauth2/authorize
        ?client_id=...&scope=identify+guilds
        &response_type=code
        &redirect_uri=...&state=<csrf>
 
-2. Discord → GET /callback?code=...&state=...
+2. Discord → GET /auth/callback?code=...&state=...
    → Validation state (CSRF)
    → Échange code → access_token
    → GET /api/users/@me
@@ -497,7 +530,7 @@ GET  /guilds/{guildID}/identity/{userID}
 ### Installation du bot sur une guilde
 
 ```
-GET /guilds/{guildID}/install
+POST /guilds/{guildID}/install
 → 302 discord.com/oauth2/authorize
     ?client_id=...
     &scope=bot
@@ -530,6 +563,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /app ./cmd/<target>
 # Runtime distroless
 FROM gcr.io/distroless/static-debian12
 COPY --from=builder /app /app
+USER nonroot:nonroot
 ENTRYPOINT ["/app"]
 ```
 
@@ -582,7 +616,7 @@ Les intents `GUILD_MEMBERS` et `MESSAGE_CONTENT` doivent être activés manuelle
 ```bash
 make lint        # gofmt + go vet + staticcheck + golangci-lint
 make test        # go test -race ./...
-make test-int    # tests d'intégration (nécessitent DB)
+make test-int    # go test -race -tags=integration ./...  (nécessite TEST_DB_DSN)
 make build       # build cmd/bot + cmd/web
 make docker      # docker compose build + config validate
 ```
@@ -596,14 +630,14 @@ make docker      # docker compose build + config validate
 | 1 | Infra : Compose, MariaDB, healthcheck, migrations, `/healthz` | Stack démarre, tables créées, `200 /healthz` |
 | 2 | Bot : connexion Gateway, READY, intents | Bot en ligne, guildes listées |
 | 3 | Multi-guilde : persistance, cache config | Config isolée par `guild_id` |
-| 4 | Moteur de modules : interface, registre, dispatcher | Module mock reçoit les événements ciblés |
+| 4 | Moteur de modules : interfaces, registre, dispatcher | Module mock reçoit les événements ciblés |
 | 5 | Module `invite_filter` | Escalade 1/2/3 testée, whitelist testée |
 | 6 | Module `identity_history` | Snapshot initial, diff, idempotence testés |
 | 7 | Dashboard : auth OAuth2 Discord, liste guildes | Login complet, `/guilds` affiché |
 | 8 | Dashboard : installation bot par guilde | Lien bot correct, statut installé détecté |
 | 9 | Dashboard : config modules | Sauvegarde persistée, rechargée par le bot |
 | 10 | Dashboard : audit log + recherche identité | Filtres, search username → historique |
-| 11 | Hardening : retry, purge, observabilité | Reprise après coupure DB, purge OK |
+| 11 | Hardening : métriques Prometheus, rate-limiting, security headers, graceful shutdown | `/metrics` répond, 429 sur dépassement, arrêt propre sans perte de requêtes |
 
 ---
 
