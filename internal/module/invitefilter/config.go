@@ -24,6 +24,16 @@ type Config struct {
 	// BanThreshold est le nombre de messages interdits à partir duquel le ban est appliqué.
 	// Défaut : 3.
 	BanThreshold int `json:"ban_threshold"`
+
+	// NotifyChannelID est l'identifiant du salon textuel Discord dans lequel le
+	// module publie un récapitulatif pour chaque action de modération.
+	// Si vide, la fonctionnalité est désactivée.
+	NotifyChannelID string `json:"notify_channel_id"`
+
+	// NotifyIncludeContent indique si le contenu original du message supprimé
+	// doit être inclus dans la notification. Défaut : false.
+	// Attention : activer cette option expose le contenu dans le salon de log.
+	NotifyIncludeContent bool `json:"notify_include_content"`
 }
 
 // defaults applique les valeurs par défaut manquantes.
