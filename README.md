@@ -75,6 +75,107 @@ Filtrage des liens d'invitation Discord non autorisés.
 
 ---
 
+## Module `identity_history`
+
+Suivi des changements d'identité des membres (username, display name, pseudo de guilde, avatar).
+
+### Événements écoutés
+
+| Événement Discord | Champs suivis |
+|---|---|
+| `GUILD_MEMBER_UPDATE` | `nickname`, `guild_avatar` |
+| `USER_UPDATE` | `username`, `global_name`, `avatar` |
+
+### Configuration (config_json dans `guild_modules`)
+
+```json
+{
+  "track_username": true,
+  "track_display_name": true,
+  "track_nickname": true,
+  "track_avatar": true,
+  "track_guild_avatar": true,
+  "retention_days": 90
+}
+```
+
+---
+
+## Dashboard API
+
+Serveur HTTP démarré automatiquement avec le bot.
+
+### Authentification
+
+OAuth2 Discord. Tous les endpoints sous `/guilds/` requièrent une session valide.
+
+```
+GET  /auth/login     → redirige vers Discord OAuth2
+GET  /auth/callback  → échange le code, crée la session
+GET  /auth/logout    → supprime la session
+```
+
+### Endpoints
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/healthz` | Santé du service + état base de données |
+| GET | `/metrics` | Métriques Prometheus |
+| GET | `/guilds` | Liste des guildes de l'utilisateur connecté |
+| GET | `/guilds/{id}` | Détail d'une guilde |
+| POST | `/guilds/{id}/install` | Installe le bot sur une guilde |
+| GET | `/guilds/{id}/modules` | Liste des modules et leur config |
+| PUT | `/guilds/{id}/modules/{name}` | Active/désactive un module |
+| PUT | `/guilds/{id}/modules/{name}/config` | Met à jour la config d'un module |
+| GET | `/guilds/{id}/audit` | Audit log paginé |
+| GET | `/guilds/{id}/identity` | Liste des membres avec état courant |
+| GET | `/guilds/{id}/identity/{userID}` | Historique d'identité d'un membre |
+
+### Pagination (identity history)
+
+```
+GET /guilds/{id}/identity/{userID}?limit=50&before=<id>&type=<event_type>
+→ { state, events[], next_cursor, count }
+```
+
+---
+
+## Observabilité
+
+### Métriques Prometheus
+
+Exposeé sur `GET /metrics`. Métriques disponibles :
+
+| Métrique | Type | Description |
+|---|---|---|
+| `discordbot_http_requests_total` | Counter | Requêtes HTTP par méthode, route et statut |
+| `discordbot_http_request_duration_seconds` | Histogram | Durée des requêtes HTTP |
+
+Intégration Prometheus (scrape config) :
+
+```yaml
+scrape_configs:
+  - job_name: discord-bot
+    static_configs:
+      - targets: ['localhost:8080']
+```
+
+### Health check
+
+`GET /healthz` retourne `200 ok` si toutes les dépendances sont disponibles, `503 degraded` sinon.
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-05-12T14:00:00Z",
+  "checks": {
+    "database": "ok"
+  }
+}
+```
+
+---
+
 ## Plan de développement
 
 | Étape | Statut | Description |
@@ -84,12 +185,12 @@ Filtrage des liens d'invitation Discord non autorisés.
 | 3 | ✅ | Cache config par guilde (sync.Map, TTL, invalidation) |
 | 4 | ✅ | Moteur de modules : interface `Module`, `Registry`, `Dispatcher` |
 | 5 | ✅ | Module `invite_filter` |
-| 6 | ⏳ | Module `identity_history` |
-| 7 | ⏳ | Dashboard : OAuth2 Discord, liste guildes |
-| 8 | ⏳ | Dashboard : installation bot |
-| 9 | ⏳ | Dashboard : configuration modules |
-| 10 | ⏳ | Dashboard : audit log |
-| 11 | ⏳ | Hardening, observabilité |
+| 6 | ✅ | Module `identity_history` |
+| 7 | ✅ | Dashboard : OAuth2 Discord, liste guildes |
+| 8 | ✅ | Dashboard : installation bot |
+| 9 | ✅ | Dashboard : configuration modules |
+| 10 | ✅ | Dashboard : audit log + identity history routes |
+| 11 | ✅ | Hardening, observabilité |
 
 ---
 
