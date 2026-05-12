@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -89,11 +88,11 @@ func NewServer(
 	})
 
 	srv.server = &http.Server{
-		Addr:         cfg.HTTPAddr,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              cfg.HTTPAddr,
+		Handler:           r,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -139,10 +138,4 @@ func (srv *Server) Start(ctx context.Context) error {
 	}
 	slog.Info("web: arrêt propre")
 	return nil
-}
-
-func (srv *Server) handleHealthzOld(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
