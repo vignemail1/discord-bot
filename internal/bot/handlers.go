@@ -29,9 +29,9 @@ func (h *Handler) onReady(s *discordgo.Session, r *discordgo.Ready) {
 	)
 }
 
-// onGuildCreate est appelé pour chaque guilde au démarrage (GUILD_CREATE burst)
-// et quand le bot rejoint une nouvelle guilde en cours d'exécution.
-func (h *Handler) onGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
+// HandleGuildCreate est appelé pour chaque GUILD_CREATE (burst au démarrage
+// et rejoint d'une nouvelle guilde en live). Exporté pour les tests.
+func (h *Handler) HandleGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 	ctx := context.Background()
 
 	if err := h.guildRepo.Upsert(ctx, repository.Guild{
@@ -54,8 +54,9 @@ func (h *Handler) onGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) 
 	)
 }
 
-// onGuildDelete est appelé quand le bot est retiré d'une guilde ou qu'elle est supprimée.
-func (h *Handler) onGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
+// HandleGuildDelete est appelé quand le bot est retiré d'une guilde ou qu'elle est supprimée.
+// Exporté pour les tests.
+func (h *Handler) HandleGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
 	ctx := context.Background()
 
 	if err := h.guildRepo.Deactivate(ctx, g.ID); err != nil {
@@ -67,4 +68,14 @@ func (h *Handler) onGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) 
 	}
 
 	slog.Info("bot: GUILD_DELETE — guilde désactivée", "guild_id", g.ID)
+}
+
+// onGuildCreate est le wrapper privé enregistré sur la session discordgo.
+func (h *Handler) onGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
+	h.HandleGuildCreate(s, g)
+}
+
+// onGuildDelete est le wrapper privé enregistré sur la session discordgo.
+func (h *Handler) onGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
+	h.HandleGuildDelete(s, g)
 }
