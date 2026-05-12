@@ -2,25 +2,19 @@
 
 Bot Discord de modération multi-guilde en Go, avec dashboard web d'administration.
 
-> Architecture complète : voir [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-
 ---
 
 ## Prérequis
 
-- Go 1.22+
-- Docker + Docker Compose v2
-- Un compte Discord Developer et une application créée sur [discord.com/developers](https://discord.com/developers/applications)
+- Go 1.22+, Docker + Docker Compose v2
+- Application créée sur [discord.com/developers](https://discord.com/developers/applications)
 
 ---
 
 ## Configuration
 
-Copier `.env.example` en `.env` :
-
 ```bash
-cp .env.example .env
-$EDITOR .env
+cp .env.example .env && $EDITOR .env
 ```
 
 ### Variables obligatoires
@@ -35,40 +29,48 @@ $EDITOR .env
 | `DB_ROOT_PASSWORD` | Mot de passe root MariaDB |
 | `SESSION_SECRET` | Clé HMAC sessions (min. 32 chars) |
 
-### Variables optionnelles
-
-| Variable | Défaut | Usage |
-|---|---|---|
-| `CACHE_TTL_SECONDS` | `300` | TTL cache config guildes |
-| `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
-| `HTTP_ADDR` | `:8080` | Adresse dashboard |
-| `DB_HOST` | `mariadb` | Hôte MariaDB |
-| `DB_PORT` | `3306` | Port MariaDB |
-
 ### Intents Discord requis (Privileged)
 
 Activer sur **Discord Developer Portal → Bot → Privileged Gateway Intents** :
-- **Server Members Intent**
-- **Message Content Intent**
+- **Server Members Intent** (`GUILD_MEMBERS`)
+- **Message Content Intent** (`MESSAGE_CONTENT`)
 
 ---
 
 ## Démarrage rapide
 
 ```bash
-cp .env.example .env && $EDITOR .env
 make docker && make up
 curl http://localhost:8080/healthz
 make logs
 ```
 
-## Développement local
+---
 
-```bash
-docker compose up -d mariadb
-export $(cat .env | grep -v '^#' | xargs)
-export DB_HOST=localhost DB_PORT=3307
-go run ./cmd/bot
+## Module `invite_filter`
+
+Filtrage des liens d'invitation Discord non autorisés.
+
+### Comportement
+
+| Infraction | Action |
+|---|---|
+| 1er message interdit | Suppression du message |
+| 2ème message interdit | Suppression + timeout 24h |
+| 3ème message interdit (et +) | Suppression + ban permanent + reset compteur |
+| Utilisateur/rôle whitelisté | Aucune action, aucun compteur |
+
+### Configuration (config_json dans `guild_modules`)
+
+```json
+{
+  "allowed_invite_codes": ["monserveur"],
+  "allowed_guild_ids": [],
+  "whitelist_role_ids": ["123456789"],
+  "whitelist_user_ids": ["987654321"],
+  "timeout_duration": "24h",
+  "ban_threshold": 3
+}
 ```
 
 ---
@@ -78,10 +80,10 @@ go run ./cmd/bot
 | Étape | Statut | Description |
 |---|---|---|
 | 1 | ✅ | Infra : Compose, MariaDB, migrations, `/healthz` |
-| 2 | ✅ | Bot : connexion Gateway, READY, persistance guildes |
+| 2 | ✅ | Bot : Gateway Discord, READY, persistance guildes |
 | 3 | ✅ | Cache config par guilde (sync.Map, TTL, invalidation) |
 | 4 | ✅ | Moteur de modules : interface `Module`, `Registry`, `Dispatcher` |
-| 5 | ⏳ | Module `invite_filter` |
+| 5 | ✅ | Module `invite_filter` |
 | 6 | ⏳ | Module `identity_history` |
 | 7 | ⏳ | Dashboard : OAuth2 Discord, liste guildes |
 | 8 | ⏳ | Dashboard : installation bot |
