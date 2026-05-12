@@ -1,3 +1,4 @@
+// Package bot gère les handlers Gateway Discord.
 package bot
 
 import (
@@ -6,76 +7,75 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/vignemail1/discord-bot/internal/cache"
 	"github.com/vignemail1/discord-bot/internal/repository"
 )
 
-// Handler reçoit les événements Gateway et les délègue aux couches métier.
+// Handler reçoit les événements Discord et orchestre les réponses.
 type Handler struct {
-	guildRepo repository.GuildRepository
+	guildRepo  repository.GuildRepository
+	moduleRepo repository.ModuleRepository
+	configCache *cache.GuildConfigCache
 }
 
-// NewHandler crée un Handler avec ses dépendances.
-func NewHandler(gr repository.GuildRepository) *Handler {
-	return &Handler{guildRepo: gr}
+// NewHandler crée un Handler.
+func NewHandler(gr repository.GuildRepository, mr repository.ModuleRepository, cc *cache.GuildConfigCache) *Handler {
+	return &Handler{
+		guildRepo:   gr,
+		moduleRepo:  mr,
+		configCache: cc,
+	}
 }
 
-// onReady est appelé quand Discord confirme l'authentification du bot.
+// --- Handlers Gateway (wrappers privés pour discordgo) ---
+
 func (h *Handler) onReady(s *discordgo.Session, r *discordgo.Ready) {
 	slog.Info("bot: READY",
 		"username", r.User.Username,
-		"user_id", r.User.ID,
 		"guilds", len(r.Guilds),
-		"session_id", r.SessionID,
 	)
 }
 
-// HandleGuildCreate est appelé pour chaque GUILD_CREATE (burst au démarrage
-// et rejoint d'une nouvelle guilde en live). Exporté pour les tests.
-func (h *Handler) HandleGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
-	ctx := context.Background()
+func (h *Handler) onGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
+	h.HandleGuildCreate(context.Background(), g.Guild)
+}
 
+func (h *Handler) onGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
+	h.HandleGuildDelete(context.Background(), g.Guild)
+}
+
+// --- Méthodes exportées (testées directement) ---
+
+// HandleGuildCreate persiste la guilde et pré-popule le cache de config.
+func (h *Handler) HandleGuildCreate(ctx context.Context, g *discordgo.Guild) {
 	if err := h.guildRepo.Upsert(ctx, repository.Guild{
-		GuildID:     g.ID,
-		GuildName:   g.Name,
-		OwnerUserID: g.OwnerID,
-		Active:      true,
+		GuildID: g.ID,
+		Name:    g.Name,
+		Active:  true,
 	}); err != nil {
-		slog.Error("bot: GUILD_CREATE — upsert échoué",
-			"guild_id", g.ID,
-			"guild_name", g.Name,
-			"err", err,
-		)
+		slog.Error("bot: GUILD_CREATE — upsert guilde échoué",
+			"guild_id", g.ID, "err", err)
 		return
 	}
-
 	slog.Info("bot: GUILD_CREATE — guilde persistée",
-		"guild_id", g.ID,
-		"guild_name", g.Name,
-	)
+		"guild_id", g.ID, "guild_name", g.Name)
+
+	// Pré-population du cache : échec non bloquant.
+	if err := h.configCache.Populate(ctx, g.ID); err != nil {
+		slog.Warn("bot: GUILD_CREATE — cache populate échoué",
+			"guild_id", g.ID, "err", err)
+	}
 }
 
-// HandleGuildDelete est appelé quand le bot est retiré d'une guilde ou qu'elle est supprimée.
-// Exporté pour les tests.
-func (h *Handler) HandleGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
-	ctx := context.Background()
-
+// HandleGuildDelete désactive la guilde et invalide le cache.
+func (h *Handler) HandleGuildDelete(ctx context.Context, g *discordgo.Guild) {
 	if err := h.guildRepo.Deactivate(ctx, g.ID); err != nil {
 		slog.Error("bot: GUILD_DELETE — deactivate échoué",
-			"guild_id", g.ID,
-			"err", err,
-		)
-		return
+			"guild_id", g.ID, "err", err)
 	}
 
-	slog.Info("bot: GUILD_DELETE — guilde désactivée", "guild_id", g.ID)
-}
-
-// onGuildCreate est le wrapper privé enregistré sur la session discordgo.
-func (h *Handler) onGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
-	h.HandleGuildCreate(s, g)
-}
-
-// onGuildDelete est le wrapper privé enregistré sur la session discordgo.
-func (h *Handler) onGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
-	h.HandleGuildDelete(s, g)
+	// Invalidation du cache même si Deactivate a échoué.
+	h.configCache.Invalidate(g.ID)
+	slog.Info("bot: GUILD_DELETE — guilde désactivée",
+		"guild_id", g.ID)
 }

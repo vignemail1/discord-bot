@@ -1,85 +1,74 @@
-// Package config lit la configuration du bot et du dashboard
-// depuis les variables d'environnement.
+// Package config charge la configuration depuis les variables d'environnement.
 package config
 
 import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
-// Config regroupe tous les paramètres de l'application.
+// Config contient toute la configuration du service.
 type Config struct {
-	// Discord bot
+	// Bot Discord
 	DiscordBotToken string
-
-	// Discord OAuth2 (dashboard web)
-	DiscordClientID     string
+	DiscordClientID string
 	DiscordClientSecret string
-	DiscordRedirectURL  string
+	DiscordRedirectURL string
 
-	// Base de données
+	// Base de données MariaDB
 	DBHost     string
-	DBPort     int
-	DBName     string
+	DBPort     string
 	DBUser     string
 	DBPassword string
+	DBName     string
 
-	// Serveur web
-	WebListenAddr string
+	// Dashboard web
+	HTTPAddr      string
 	SessionSecret string
+
+	// Cache
+	CacheTTL time.Duration
 
 	// Logs
 	LogLevel string
 }
 
-// Load lit et valide la configuration depuis l'environnement.
-// Retourne une erreur si une variable obligatoire est absente ou invalide.
+// Load lit les variables d'environnement et retourne une Config validée.
 func Load() (*Config, error) {
-	port, err := envInt("DB_PORT", 3306)
-	if err != nil {
-		return nil, fmt.Errorf("config: DB_PORT invalide: %w", err)
-	}
-
-	cfg := &Config{
+	c := &Config{
 		DiscordBotToken:     os.Getenv("DISCORD_BOT_TOKEN"),
 		DiscordClientID:     os.Getenv("DISCORD_CLIENT_ID"),
 		DiscordClientSecret: os.Getenv("DISCORD_CLIENT_SECRET"),
-		DiscordRedirectURL:  os.Getenv("DISCORD_REDIRECT_URL"),
-		DBHost:              envDefault("DB_HOST", "mariadb"),
-		DBPort:              port,
-		DBName:              envDefault("DB_NAME", "discordbot"),
-		DBUser:              envDefault("DB_USER", "discordbot"),
+		DiscordRedirectURL:  getEnvDefault("DISCORD_REDIRECT_URL", "http://localhost:8080/auth/callback"),
+		DBHost:              getEnvDefault("DB_HOST", "mariadb"),
+		DBPort:              getEnvDefault("DB_PORT", "3306"),
+		DBUser:              getEnvDefault("DB_USER", "discordbot"),
 		DBPassword:          os.Getenv("DB_PASSWORD"),
-		WebListenAddr:       envDefault("WEB_LISTEN_ADDR", ":8080"),
+		DBName:              getEnvDefault("DB_NAME", "discordbot"),
+		HTTPAddr:            getEnvDefault("HTTP_ADDR", ":8080"),
 		SessionSecret:       os.Getenv("SESSION_SECRET"),
-		LogLevel:            envDefault("LOG_LEVEL", "info"),
+		LogLevel:            getEnvDefault("LOG_LEVEL", "info"),
 	}
 
-	return cfg, nil
+	ttlSec, err := strconv.Atoi(getEnvDefault("CACHE_TTL_SECONDS", "300"))
+	if err != nil || ttlSec <= 0 {
+		return nil, fmt.Errorf("config: CACHE_TTL_SECONDS invalide (valeur reçue: %q)", os.Getenv("CACHE_TTL_SECONDS"))
+	}
+	c.CacheTTL = time.Duration(ttlSec) * time.Second
+
+	return c, nil
 }
 
-// DSN retourne la chaîne de connexion MariaDB pour database/sql.
+// DSN retourne la Data Source Name pour sqlx/MariaDB.
 func (c *Config) DSN() string {
-	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=true&multiStatements=true",
-		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName,
-	)
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
+		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName)
 }
 
-// ---
-
-func envDefault(key, fallback string) string {
+func getEnvDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return fallback
-}
-
-func envInt(key string, fallback int) (int, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return fallback, nil
-	}
-	return strconv.Atoi(v)
+	return def
 }

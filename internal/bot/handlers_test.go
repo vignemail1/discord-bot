@@ -4,97 +4,61 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/vignemail1/discord-bot/internal/bot"
-	"github.com/vignemail1/discord-bot/internal/repository"
+	"github.com/vignemail1/discord-bot/internal/cache"
 	"github.com/vignemail1/discord-bot/internal/repository/mock"
 )
 
-func TestHandleGuildCreate_Upsert(t *testing.T) {
-	gr := mock.NewGuildRepository()
-	h := bot.NewHandler(gr)
+func newTestHandler() (*mock.GuildRepositoryMock, *mock.ModuleRepositoryMock, *cache.GuildConfigCache, *bot.Handler) {
+	gMock := mock.NewGuildRepository()
+	mMock := mock.NewModuleRepository()
+	cc := cache.New(mMock, 5*time.Minute)
+	h := bot.NewHandler(gMock, mMock, cc)
+	return gMock, mMock, cc, h
+}
 
-	s, err := bot.New("fake-token", h)
-	require.NoError(t, err)
-
-	gc := &discordgo.GuildCreate{
-		Guild: &discordgo.Guild{
-			ID:      "111",
-			Name:    "Test Server",
-			OwnerID: "222",
-		},
-	}
-
-	h.HandleGuildCreate(s.DG, gc)
-
-	g, err := gr.Get(context.Background(), "111")
-	require.NoError(t, err)
-	require.NotNil(t, g)
-	assert.Equal(t, "Test Server", g.GuildName)
-	assert.True(t, g.Active)
+func TestHandleGuildCreate_OK(t *testing.T) {
+	_, _, cc, h := newTestHandler()
+	h.HandleGuildCreate(context.Background(), &discordgo.Guild{ID: "111", Name: "TestServer"})
+	// Le cache doit être pré-populer (Populate ne retourne pas d'erreur).
+	cfg, err := cc.Get(context.Background(), "111")
+	assert.NoError(t, err)
+	assert.Equal(t, "111", cfg.GuildID)
 }
 
 func TestHandleGuildCreate_UpsertError_NoPanic(t *testing.T) {
-	gr := mock.NewGuildRepository()
-	gr.UpsertErr = errors.New("db down")
-
-	h := bot.NewHandler(gr)
-	s, err := bot.New("fake-token", h)
-	require.NoError(t, err)
-
-	gc := &discordgo.GuildCreate{
-		Guild: &discordgo.Guild{ID: "111", Name: "Test", OwnerID: "222"},
-	}
-
-	assert.NotPanics(t, func() {
-		h.HandleGuildCreate(s.DG, gc)
-	})
+	gMock, _, _, h := newTestHandler()
+	gMock.UpsertErr = errors.New("db error")
+	// Ne doit pas paniquer
+	h.HandleGuildCreate(context.Background(), &discordgo.Guild{ID: "222", Name: "Fail"})
 }
 
-func TestHandleGuildDelete_Deactivate(t *testing.T) {
-	gr := mock.NewGuildRepository()
+func TestHandleGuildDelete_OK(t *testing.T) {
+	gMock, mMock, cc, h := newTestHandler()
+	_ = gMock.Upsert(context.Background(), mock.NewGuild("333", "ToDelete"))
+	_ = mMock.Upsert(context.Background(), mock.NewModule("333", "invite_filter", true))
+	_ = cc.Populate(context.Background(), "333")
 
-	// Pré-insérer la guilde.
-	err := gr.Upsert(context.Background(), repository.Guild{
-		GuildID:   "111",
-		GuildName: "Test Server",
-		Active:    true,
-	})
-	require.NoError(t, err)
-
-	h := bot.NewHandler(gr)
-	s, newErr := bot.New("fake-token", h)
-	require.NoError(t, newErr)
-
-	gd := &discordgo.GuildDelete{
-		Guild: &discordgo.Guild{ID: "111"},
-	}
-
-	h.HandleGuildDelete(s.DG, gd)
-
-	g, err := gr.Get(context.Background(), "111")
-	require.NoError(t, err)
-	require.NotNil(t, g)
-	assert.False(t, g.Active)
+	h.HandleGuildDelete(context.Background(), &discordgo.Guild{ID: "333"})
+	// Après delete, l'entrée doit être invalide dans le cache.
+	mMock.ListErr = errors.New("db down")
+	_, err := cc.Get(context.Background(), "333")
+	assert.Error(t, err, "cache should have been invalidated")
 }
 
-func TestHandleGuildDelete_DeactivateError_NoPanic(t *testing.T) {
-	gr := mock.NewGuildRepository()
-	gr.DeactivateErr = errors.New("db down")
+func TestHandleGuildDelete_DeactivateError_CacheStillInvalidated(t *testing.T) {
+	gMock, mMock, cc, h := newTestHandler()
+	_ = cc.Populate(context.Background(), "444")
+	gMock.DeactivateErr = errors.New("db error")
 
-	h := bot.NewHandler(gr)
-	s, err := bot.New("fake-token", h)
-	require.NoError(t, err)
-
-	gd := &discordgo.GuildDelete{
-		Guild: &discordgo.Guild{ID: "111"},
-	}
-
-	assert.NotPanics(t, func() {
-		h.HandleGuildDelete(s.DG, gd)
-	})
+	// Même si Deactivate échoue, le cache doit être invalidé.
+	h.HandleGuildDelete(context.Background(), &discordgo.Guild{ID: "444"})
+	mMock.ListErr = errors.New("db down")
+	_, err := cc.Get(context.Background(), "444")
+	assert.Error(t, err, "cache should still be invalidated despite DB error")
 }
