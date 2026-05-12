@@ -1,5 +1,5 @@
 // cmd/bot est le point d'entrée du bot Discord.
-// Étape 5 : enregistrement du module invite_filter.
+// Étape 6 : enregistrement du module identity_history + purger.
 package main
 
 import (
@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/vignemail1/discord-bot/internal/bot"
 	"github.com/vignemail1/discord-bot/internal/cache"
 	"github.com/vignemail1/discord-bot/internal/config"
 	"github.com/vignemail1/discord-bot/internal/db"
 	"github.com/vignemail1/discord-bot/internal/module"
+	"github.com/vignemail1/discord-bot/internal/module/identityhistory"
 	"github.com/vignemail1/discord-bot/internal/module/invitefilter"
 	"github.com/vignemail1/discord-bot/internal/repository/mariadb"
 )
@@ -48,9 +50,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	guildRepo   := mariadb.NewGuildRepo(conn)
-	moduleRepo  := mariadb.NewModuleRepo(conn)
-	counterRepo := invitefilter.NewMariaDBCounterRepo(conn)
+	guildRepo    := mariadb.NewGuildRepo(conn)
+	moduleRepo   := mariadb.NewModuleRepo(conn)
+	counterRepo  := invitefilter.NewMariaDBCounterRepo(conn)
+	identityRepo := identityhistory.NewMariaDBIdentityRepo(conn)
 
 	configCache := cache.New(moduleRepo, cfg.CacheTTL)
 	configCache.Start(ctx)
@@ -58,8 +61,27 @@ func main() {
 	// Moteur de modules.
 	reg := module.NewRegistry()
 	reg.MustRegister(invitefilter.New(counterRepo))
+	reg.MustRegister(identityhistory.New(identityRepo))
 
 	disp := module.NewDispatcher(reg, configCache)
+
+	// Purger identity_history : tourne toutes les 24h.
+	purger := identityhistory.NewPurger(
+		identityRepo,
+		func() []string { return configCache.ActiveGuildIDs() },
+		func(guildID string) identityhistory.Config {
+			cfgCtx := context.Background()
+			gc, err := configCache.Get(cfgCtx, guildID)
+			if err != nil {
+				return identityhistory.Config{}
+			}
+			var modCfg identityhistory.Config
+			_ = gc.ModuleConfig(identityhistory.ModuleName, &modCfg)
+			return modCfg
+		},
+		24*time.Hour,
+	)
+	purger.Start(ctx)
 
 	handler := bot.NewHandler(guildRepo, moduleRepo, configCache)
 	session, err := bot.New(cfg.DiscordBotToken, handler, disp)

@@ -26,6 +26,18 @@ type Module interface {
 	HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate, cfg *cache.GuildConfig) error
 }
 
+// MemberUpdateHandler est implémenté par les modules qui consomment GUILD_MEMBER_UPDATE.
+type MemberUpdateHandler interface {
+	HandleMemberUpdate(ctx context.Context, s *discordgo.Session, ev *discordgo.GuildMemberUpdate, cfg *cache.GuildConfig) error
+}
+
+// UserUpdateHandler est implémenté par les modules qui consomment USER_UPDATE.
+// USER_UPDATE est global (pas de guild_id) ; le dispatcher réplique l'appel
+// pour chaque guilde active où ce module est activé.
+type UserUpdateHandler interface {
+	HandleUserUpdate(ctx context.Context, s *discordgo.Session, ev *discordgo.UserUpdate, guildID string, cfg *cache.GuildConfig) error
+}
+
 // HandlerFunc permet d'enregistrer une fonction comme Module sans définir un type dédié.
 // Utile pour les tests ou les modules one-shot simples.
 type HandlerFunc struct {
