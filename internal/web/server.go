@@ -23,6 +23,7 @@ type Server struct {
 	moduleRepo   repository.ModuleRepository
 	auditRepo    repository.AuditRepository
 	identityRepo repository.IdentityRepository
+	dbPinger     DBPinger
 	httpClient   *http.Client
 	server       *http.Server
 }
@@ -34,6 +35,7 @@ func NewServer(
 	moduleRepo repository.ModuleRepository,
 	auditRepo repository.AuditRepository,
 	identityRepo repository.IdentityRepository,
+	dbPinger DBPinger,
 ) *Server {
 	srv := &Server{
 		cfg:          cfg,
@@ -42,17 +44,24 @@ func NewServer(
 		moduleRepo:   moduleRepo,
 		auditRepo:    auditRepo,
 		identityRepo: identityRepo,
+		dbPinger:     dbPinger,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 
 	r := chi.NewRouter()
+
+	// Middlewares globaux.
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(slogRequest)
+	r.Use(securityHeaders)
+	r.Use(metricsMiddleware)
+	r.Use(RateLimitMiddleware(20, 50)) // 20 req/s par IP, burst 50
 
-	// Routes publiques.
+	// Routes publiques (pas de rate limit supplémentaire ni auth).
 	r.Get("/healthz", srv.handleHealthz)
+	r.Get("/metrics", metricsHandler().ServeHTTP)
 	r.Get("/auth/login", srv.handleLogin)
 	r.Get("/auth/callback", srv.handleCallback)
 	r.Get("/auth/logout", srv.handleLogout)
@@ -85,6 +94,7 @@ func NewServer(
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	return srv
@@ -121,7 +131,7 @@ func (srv *Server) Start(ctx context.Context) error {
 	}
 
 	slog.Info("web: arrêt demandé, drain en cours")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("web: shutdown incomplet", "err", err)
@@ -131,7 +141,7 @@ func (srv *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-func (srv *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+func (srv *Server) handleHealthzOld(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
