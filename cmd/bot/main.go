@@ -1,5 +1,5 @@
 // cmd/bot est le point d'entrée du bot Discord.
-// Étape 3 : cache de configuration par guilde (sync.Map + TTL + goroutine de purge).
+// Étape 4 : moteur de modules (Registry + Dispatcher).
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"github.com/vignemail1/discord-bot/internal/cache"
 	"github.com/vignemail1/discord-bot/internal/config"
 	"github.com/vignemail1/discord-bot/internal/db"
+	"github.com/vignemail1/discord-bot/internal/module"
 	"github.com/vignemail1/discord-bot/internal/repository/mariadb"
 )
 
@@ -47,20 +48,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Wiring des dépendances.
-	guildRepo := mariadb.NewGuildRepo(conn)
+	// Repositories.
+	guildRepo  := mariadb.NewGuildRepo(conn)
 	moduleRepo := mariadb.NewModuleRepo(conn)
 
+	// Cache.
 	configCache := cache.New(moduleRepo, cfg.CacheTTL)
-	configCache.Start(ctx) // goroutine de purge des entrées expirées
+	configCache.Start(ctx)
 
+	// Moteur de modules.
+	// Les modules concrets (invite_filter, …) seront enregistrés ici au step 5+.
+	reg  := module.NewRegistry()
+	disp := module.NewDispatcher(reg, configCache)
+
+	// Handler Gateway + session.
 	handler := bot.NewHandler(guildRepo, moduleRepo, configCache)
-
-	session, err := bot.New(cfg.DiscordBotToken, handler)
+	session, err := bot.New(cfg.DiscordBotToken, handler, disp)
 	if err != nil {
 		slog.Error("bot: création session échouée", "err", err)
 		os.Exit(1)
 	}
+
+	slog.Info("bot: démarrage", "modules", reg.Names())
 
 	if err = session.Open(ctx); err != nil {
 		slog.Error("bot: Gateway err", "err", err)
