@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,11 +17,17 @@ const ModuleName = "invite_filter"
 // InviteFilter est le module de filtrage des liens d'invitation Discord.
 type InviteFilter struct {
 	counters CounterRepository
+	audit    AuditRepository
 }
 
-// New crée un nouveau module InviteFilter.
+// New crée un nouveau module InviteFilter sans audit (rétrocompatibilité).
 func New(counters CounterRepository) *InviteFilter {
 	return &InviteFilter{counters: counters}
+}
+
+// NewWithAudit crée un module InviteFilter avec persistance de l'audit.
+func NewWithAudit(counters CounterRepository, audit AuditRepository) *InviteFilter {
+	return &InviteFilter{counters: counters, audit: audit}
 }
 
 func (f *InviteFilter) Name() string { return ModuleName }
@@ -32,29 +39,24 @@ func (f *InviteFilter) HandleMessage(
 	m *discordgo.MessageCreate,
 	cfg *cache.GuildConfig,
 ) error {
-	// Récupérer la config du module.
 	var modCfg Config
 	if err := cfg.ModuleConfig(ModuleName, &modCfg); err != nil {
 		return err
 	}
 	modCfg.defaults()
 
-	// Whitelist utilisateur.
 	if slices.Contains(modCfg.WhitelistUserIDs, m.Author.ID) {
 		return nil
 	}
-	// Whitelist rôle.
 	if f.authorHasWhitelistedRole(m.Member, modCfg.WhitelistRoleIDs) {
 		return nil
 	}
 
-	// Détecter les codes d'invitation.
 	codes := ExtractInviteCodes(m.Content)
 	if len(codes) == 0 {
 		return nil
 	}
 
-	// Vérifier si tous les codes sont autorisés.
 	if f.allCodesAllowed(codes, m.GuildID, modCfg) {
 		return nil
 	}
@@ -81,15 +83,47 @@ func (f *InviteFilter) HandleMessage(
 		"codes", codes,
 	)
 
+	var action ActionKind
 	switch {
 	case count >= modCfg.BanThreshold:
 		f.ban(ctx, s, m, count)
+		action = ActionBan
 	case count == 2:
 		f.timeout(ctx, s, m, modCfg.TimeoutDuration)
-	// count == 1 : suppression seule, déjà effectuée.
+		action = ActionTimeout
+	default:
+		action = ActionDelete
 	}
 
+	f.writeAudit(ctx, m, codes, action, count)
+
 	return nil
+}
+
+// writeAudit persiste l'action si un AuditRepository est configuré.
+func (f *InviteFilter) writeAudit(
+	ctx context.Context,
+	m *discordgo.MessageCreate,
+	codes []string,
+	action ActionKind,
+	count int,
+) {
+	if f.audit == nil {
+		return
+	}
+	rec := AuditRecord{
+		GuildID:     m.GuildID,
+		UserID:      m.Author.ID,
+		ChannelID:   m.ChannelID,
+		MessageID:   m.ID,
+		Action:      action,
+		InviteCodes: strings.Join(codes, ","),
+		Count:       count,
+	}
+	if err := f.audit.Insert(ctx, rec); err != nil {
+		slog.Error("invite_filter: audit insert échoué",
+			"guild_id", m.GuildID, "user_id", m.Author.ID, "err", err)
+	}
 }
 
 // --- actions de sanction ---
@@ -120,7 +154,6 @@ func (f *InviteFilter) ban(ctx context.Context, s *discordgo.Session, m *discord
 	}
 	slog.Info("invite_filter: ban appliqué",
 		"guild_id", m.GuildID, "user_id", m.Author.ID, "count", count)
-	// Reset du compteur après ban.
 	_ = f.counters.Reset(ctx, m.GuildID, m.Author.ID, ModuleName)
 }
 
@@ -143,9 +176,6 @@ func (f *InviteFilter) allCodesAllowed(codes []string, guildID string, cfg Confi
 		if IsAllowedCode(code, cfg.AllowedInviteCodes) {
 			continue
 		}
-		// On ne peut pas résoudre le guild_id cible sans appel API Discord ;
-		// si AllowedGuildIDs est vide, on bloque tout code non explicitement autorisé.
-		// (La résolution API sera ajoutée lors du hardening step 11.)
 		return false
 	}
 	return true
