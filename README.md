@@ -35,12 +35,16 @@ $EDITOR .env
 | `DB_ROOT_PASSWORD` | Mot de passe root MariaDB |
 | `SESSION_SECRET` | Clé HMAC des sessions web (min. 32 caractères) |
 
-### Intents Discord requis
+### Intents Discord requis (Privileged)
 
-Activez dans **Discord Developer Portal → Application → Bot → Privileged Gateway Intents** :
+Activer **impersécutivement** dans **Discord Developer Portal → Application → Bot → Privileged Gateway Intents** :
 
-- **Server Members Intent** (`GUILD_MEMBERS`)
-- **Message Content Intent** (`MESSAGE_CONTENT`)
+| Intent | Raison |
+|---|---|
+| **Server Members Intent** (`GUILD_MEMBERS`) | Réception des événements membres (join, update, leave) |
+| **Message Content Intent** (`MESSAGE_CONTENT`) | Lecture du contenu des messages pour le filtrage d'invitations |
+
+> ⚠️ Sans ces deux intents activés, le bot se connecte mais ne reçoit pas les événements membres ni le contenu des messages.
 
 ---
 
@@ -73,11 +77,11 @@ docker compose up -d mariadb
 export $(cat .env | grep -v '^#' | xargs)
 export DB_HOST=localhost DB_PORT=3307
 
-# Démarrer le dashboard
-go run ./cmd/web
-
-# Dans un autre terminal : démarrer le bot
+# Démarrer le bot
 go run ./cmd/bot
+
+# Dans un autre terminal : démarrer le dashboard
+go run ./cmd/web
 ```
 
 ---
@@ -107,11 +111,13 @@ discord-bot/
 ├── internal/
 │   ├── config/       # Lecture des variables d'environnement
 │   ├── db/           # Connexion MariaDB + runner de migrations
-│   ├── module/       # Interface Module, registre, dispatcher
-│   ├── repository/   # CRUD guildes, modules, audit
-│   ├── bot/          # Session Gateway Discord
-│   ├── web/          # Serveur HTTP, OAuth2, handlers
-│   └── audit/        # Service d'audit log
+│   ├── module/       # Interface Module, registre, dispatcher (step 4)
+│   ├── repository/   # Interfaces de persistance
+│   │   ├── mariadb/  # Implémentations MariaDB (sqlx)
+│   │   └── mock/     # Mocks en mémoire pour les tests
+│   ├── bot/          # Session Gateway, handlers READY/GUILD_CREATE/DELETE
+│   ├── web/          # Serveur HTTP, OAuth2, handlers (steps 7–10)
+│   └── audit/        # Service d'audit log (step 7)
 ├── migrations/       # Fichiers SQL versionnés (golang-migrate)
 ├── Dockerfile.bot
 ├── Dockerfile.web
@@ -126,8 +132,8 @@ discord-bot/
 | Étape | Statut | Description |
 |---|---|---|
 | 1 | ✅ | Infra : Compose, MariaDB, migrations, `/healthz` |
-| 2 | ⏳ | Bot : connexion Gateway Discord, READY |
-| 3 | ⏳ | Multi-guilde : persistance, cache config |
+| 2 | ✅ | Bot : connexion Gateway Discord, READY, persistance guildes |
+| 3 | ⏳ | Multi-guilde : cache config par guilde |
 | 4 | ⏳ | Moteur de modules : interface, registre, dispatcher |
 | 5 | ⏳ | Module `invite_filter` |
 | 6 | ⏳ | Module `identity_history` |
