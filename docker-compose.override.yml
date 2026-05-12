@@ -1,0 +1,23 @@
+# Override de développement local
+# Ce fichier est chargé automatiquement par docker compose en environnement de dev.
+# Ne pas committer de secrets ici.
+services:
+  mariadb:
+    ports:
+      - "3307:3306"
+
+  bot:
+    build:
+      target: builder
+    volumes:
+      - .:/build
+    environment:
+      LOG_LEVEL: debug
+
+  web:
+    build:
+      target: builder
+    volumes:
+      - .:/build
+    environment:
+      LOG_LEVEL: debug

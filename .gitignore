@@ -1,0 +1,25 @@
+# Binaries
+/bin/
+dist/
+*.exe
+
+# Environment
+.env
+*.env.local
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker overrides locaux
+docker-compose.local.yml
+
+# Logs
+*.log
