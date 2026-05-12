@@ -1,30 +1,37 @@
-// Package mock fournit des implémentations en mémoire des repositories pour les tests.
 package mock
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/vignemail1/discord-bot/internal/repository"
 )
 
-// GuildRepositoryMock est une implémentation en mémoire thread-safe de repository.GuildRepository.
+// GuildRepositoryMock est l'implémentation en mémoire de repository.GuildRepository.
 type GuildRepositoryMock struct {
-	mu     sync.RWMutex
-	guilds map[string]repository.Guild
-
-	// Injections d'erreurs pour les tests.
-	UpsertErr    error
+	mu            sync.RWMutex
+	guilds        map[string]repository.Guild
+	UpsertErr     error
 	DeactivateErr error
-	GetErr       error
-	ListActiveErr error
+	GetErr        error
+	ListErr       error
 }
 
-// NewGuildRepository crée un mock vide.
 func NewGuildRepository() *GuildRepositoryMock {
 	return &GuildRepositoryMock{
 		guilds: make(map[string]repository.Guild),
 	}
+}
+
+// NewGuild est un helper de test.
+func NewGuild(id, name string) repository.Guild {
+	return repository.Guild{GuildID: id, Name: name, Active: true}
+}
+
+// NewModule est un helper de test utilisé par les tests cross-packages.
+func NewModule(guildID, name string, enabled bool) repository.GuildModule {
+	return repository.GuildModule{GuildID: guildID, ModuleName: name, Enabled: enabled}
 }
 
 func (m *GuildRepositoryMock) Upsert(ctx context.Context, g repository.Guild) error {
@@ -58,15 +65,15 @@ func (m *GuildRepositoryMock) Get(ctx context.Context, guildID string) (*reposit
 	defer m.mu.RUnlock()
 	g, ok := m.guilds[guildID]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("mock: guilde %s introuvable", guildID)
 	}
 	copy := g
 	return &copy, nil
 }
 
 func (m *GuildRepositoryMock) ListActive(ctx context.Context) ([]repository.Guild, error) {
-	if m.ListActiveErr != nil {
-		return nil, m.ListActiveErr
+	if m.ListErr != nil {
+		return nil, m.ListErr
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -79,5 +86,4 @@ func (m *GuildRepositoryMock) ListActive(ctx context.Context) ([]repository.Guil
 	return out, nil
 }
 
-// Vérification statique : GuildRepositoryMock implémente repository.GuildRepository.
 var _ repository.GuildRepository = (*GuildRepositoryMock)(nil)

@@ -1,6 +1,5 @@
 // cmd/bot est le point d'entrée du bot Discord.
-// Étape 2 : connexion Gateway Discord, événements READY + GUILD_CREATE/DELETE,
-// persistance des guildes, graceful shutdown.
+// Étape 3 : cache de configuration par guilde (sync.Map + TTL + goroutine de purge).
 package main
 
 import (
@@ -11,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/vignemail1/discord-bot/internal/bot"
+	"github.com/vignemail1/discord-bot/internal/cache"
 	"github.com/vignemail1/discord-bot/internal/config"
 	"github.com/vignemail1/discord-bot/internal/db"
 	"github.com/vignemail1/discord-bot/internal/repository/mariadb"
@@ -34,7 +34,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Connexion base de données.
+	// Connexion DB + migrations.
 	conn, err := db.Connect(ctx, cfg.DSN())
 	if err != nil {
 		slog.Error("db: connexion échouée", "err", err)
@@ -42,7 +42,6 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Migrations.
 	if err = db.RunMigrations(conn, "./migrations"); err != nil {
 		slog.Error("migrations: échec", "err", err)
 		os.Exit(1)
@@ -50,7 +49,12 @@ func main() {
 
 	// Wiring des dépendances.
 	guildRepo := mariadb.NewGuildRepo(conn)
-	handler := bot.NewHandler(guildRepo)
+	moduleRepo := mariadb.NewModuleRepo(conn)
+
+	configCache := cache.New(moduleRepo, cfg.CacheTTL)
+	configCache.Start(ctx) // goroutine de purge des entrées expirées
+
+	handler := bot.NewHandler(guildRepo, moduleRepo, configCache)
 
 	session, err := bot.New(cfg.DiscordBotToken, handler)
 	if err != nil {
@@ -58,7 +62,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Connexion Gateway (bloquant jusqu'à l'arrêt du contexte).
 	if err = session.Open(ctx); err != nil {
 		slog.Error("bot: Gateway err", "err", err)
 		os.Exit(1)
