@@ -23,13 +23,14 @@ const (
 
 // IdentityRecord est une entrée de l'historique d'identité.
 type IdentityRecord struct {
-	ID        int64     `db:"id"`
-	GuildID   string    `db:"guild_id"`
-	UserID    string    `db:"user_id"`
-	Field     FieldKind `db:"field"`
-	OldValue  string    `db:"old_value"`
-	NewValue  string    `db:"new_value"`
-	CreatedAt time.Time `db:"created_at"`
+	ID          int64     `db:"id"`
+	GuildID     string    `db:"guild_id"`
+	UserID      string    `db:"user_id"`
+	Field       FieldKind `db:"event_type"`
+	OldValue    string    `db:"old_value"`
+	NewValue    string    `db:"new_value"`
+	SourceEvent string    `db:"source_event"`
+	CreatedAt   time.Time `db:"changed_at"`
 }
 
 // IdentityRepository est le contrat de persistance de l'historique.
@@ -57,12 +58,12 @@ func NewMariaDBIdentityRepo(db *sqlx.DB) *MariaDBIdentityRepo {
 
 func (r *MariaDBIdentityRepo) Insert(ctx context.Context, rec IdentityRecord) error {
 	const q = `
-		INSERT INTO guild_member_identity_history
-			(guild_id, user_id, field, old_value, new_value)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO guild_member_identity_events
+			(guild_id, user_id, event_type, old_value, new_value, source_event)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 	if _, err := r.db.ExecContext(ctx, q,
-		rec.GuildID, rec.UserID, rec.Field, rec.OldValue, rec.NewValue,
+		rec.GuildID, rec.UserID, rec.Field, rec.OldValue, rec.NewValue, rec.SourceEvent,
 	); err != nil {
 		return fmt.Errorf("identity.Insert: %w", err)
 	}
@@ -71,10 +72,10 @@ func (r *MariaDBIdentityRepo) Insert(ctx context.Context, rec IdentityRecord) er
 
 func (r *MariaDBIdentityRepo) ListByUser(ctx context.Context, guildID, userID string, limit int) ([]IdentityRecord, error) {
 	const q = `
-		SELECT id, guild_id, user_id, field, old_value, new_value, created_at
-		FROM guild_member_identity_history
+		SELECT id, guild_id, user_id, event_type, old_value, new_value, source_event, changed_at
+		FROM guild_member_identity_events
 		WHERE guild_id = ? AND user_id = ?
-		ORDER BY created_at DESC
+		ORDER BY changed_at DESC
 		LIMIT ?
 	`
 	var out []IdentityRecord
@@ -85,7 +86,7 @@ func (r *MariaDBIdentityRepo) ListByUser(ctx context.Context, guildID, userID st
 }
 
 func (r *MariaDBIdentityRepo) Purge(ctx context.Context, guildID string, before time.Time) (int64, error) {
-	const q = `DELETE FROM guild_member_identity_history WHERE guild_id = ? AND created_at < ?`
+	const q = `DELETE FROM guild_member_identity_events WHERE guild_id = ? AND changed_at < ?`
 	res, err := r.db.ExecContext(ctx, q, guildID, before)
 	if err != nil {
 		return 0, fmt.Errorf("identity.Purge: %w", err)
@@ -96,9 +97,9 @@ func (r *MariaDBIdentityRepo) Purge(ctx context.Context, guildID string, before 
 
 func (r *MariaDBIdentityRepo) LastValue(ctx context.Context, guildID, userID string, field FieldKind) (string, error) {
 	const q = `
-		SELECT new_value FROM guild_member_identity_history
-		WHERE guild_id = ? AND user_id = ? AND field = ?
-		ORDER BY created_at DESC
+		SELECT new_value FROM guild_member_identity_events
+		WHERE guild_id = ? AND user_id = ? AND event_type = ?
+		ORDER BY changed_at DESC
 		LIMIT 1
 	`
 	var val string

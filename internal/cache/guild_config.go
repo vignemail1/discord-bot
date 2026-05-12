@@ -21,7 +21,7 @@ type GuildConfig struct {
 	GuildID string
 	// Modules est la carte moduleName → GuildModule.
 	// La clé est le nom du module (ex : "invite_filter").
-	Modules map[string]repository.GuildModule
+	Modules  map[string]repository.GuildModule
 	cachedAt time.Time
 }
 
@@ -31,8 +31,8 @@ func (g *GuildConfig) IsEnabled(moduleName string) bool {
 	return ok && m.Enabled
 }
 
-// ModuleConfig déséérialise le config_json d'un module dans dst.
-// Retourne une erreur si le module est absent ou si le JSON est invalide.
+// ModuleConfig déserialise le config_json d'un module dans dst.
+// Retourne nil si le module est absent ou si le JSON est vide (→ defaults).
 func (g *GuildConfig) ModuleConfig(moduleName string, dst any) error {
 	m, ok := g.Modules[moduleName]
 	if !ok {
@@ -45,7 +45,7 @@ func (g *GuildConfig) ModuleConfig(moduleName string, dst any) error {
 }
 
 type cacheEntry struct {
-	config   GuildConfig
+	config    GuildConfig
 	expiresAt time.Time
 }
 
@@ -113,6 +113,21 @@ func (c *GuildConfigCache) Invalidate(guildID string) {
 func (c *GuildConfigCache) Populate(ctx context.Context, guildID string) error {
 	_, err := c.load(ctx, guildID)
 	return err
+}
+
+// ActiveGuildIDs retourne la liste des guild_id actuellement présents dans le cache
+// (non expirés). Utilisé par le Dispatcher pour la propagation USER_UPDATE.
+func (c *GuildConfigCache) ActiveGuildIDs() []string {
+	now := time.Now()
+	var ids []string
+	c.entries.Range(func(k, v any) bool {
+		e := v.(*cacheEntry)
+		if now.Before(e.expiresAt) {
+			ids = append(ids, k.(string))
+		}
+		return true
+	})
+	return ids
 }
 
 // load (privé) charge depuis la DB et met à jour le cache.

@@ -10,8 +10,8 @@ import (
 // d'identité antérieurs au RetentionDays configuré pour chaque guilde.
 type Purger struct {
 	repo     IdentityRepository
-	guilds   func() []string // injecte la liste des guild_id actifs
-	cfgFn    func(guildID string) Config // retourne la config du module pour une guilde
+	guilds   func() []string       // injecte la liste des guild_id actifs
+	cfgFn    func(string) Config   // retourne la config du module pour une guilde
 	interval time.Duration
 }
 
@@ -46,13 +46,15 @@ func (p *Purger) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				p.run(ctx)
+				p.RunOnce(ctx)
 			}
 		}
 	}()
 }
 
-func (p *Purger) run(ctx context.Context) {
+// RunOnce exécute une passe de purge immédiate.
+// Exporté pour les tests unitaires.
+func (p *Purger) RunOnce(ctx context.Context) {
 	for _, guildID := range p.guilds() {
 		cfg := p.cfgFn(guildID)
 		cfg.defaults()

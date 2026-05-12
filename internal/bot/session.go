@@ -53,6 +53,10 @@ func New(token string, h *Handler, disp *module.Dispatcher) (*Session, error) {
 	// Dispatcher de messages.
 	dg.AddHandler(disp.OnMessageCreate)
 
+	// Dispatcher pour le suivi d'identité.
+	dg.AddHandler(disp.OnGuildMemberUpdate)
+	dg.AddHandler(disp.OnUserUpdate)
+
 	return s, nil
 }
 
