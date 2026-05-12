@@ -1,5 +1,4 @@
 // cmd/bot est le point d'entrée du bot Discord.
-// Étape 6 : enregistrement du module identity_history + purger.
 package main
 
 import (
@@ -53,6 +52,7 @@ func main() {
 	guildRepo    := mariadb.NewGuildRepo(conn)
 	moduleRepo   := mariadb.NewModuleRepo(conn)
 	counterRepo  := invitefilter.NewMariaDBCounterRepo(conn)
+	auditRepo    := invitefilter.NewMariaDBauditRepo(conn)
 	identityRepo := identityhistory.NewMariaDBIdentityRepo(conn)
 
 	configCache := cache.New(moduleRepo, cfg.CacheTTL)
@@ -60,7 +60,7 @@ func main() {
 
 	// Moteur de modules.
 	reg := module.NewRegistry()
-	reg.MustRegister(invitefilter.New(counterRepo))
+	reg.MustRegister(invitefilter.NewWithAudit(counterRepo, auditRepo))
 	reg.MustRegister(identityhistory.New(identityRepo))
 
 	disp := module.NewDispatcher(reg, configCache)
