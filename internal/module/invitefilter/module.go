@@ -96,6 +96,7 @@ func (f *InviteFilter) HandleMessage(
 	}
 
 	f.writeAudit(ctx, m, codes, action, count)
+	NotifyAction(ctx, s, modCfg, m, codes, action, count)
 
 	return nil
 }
