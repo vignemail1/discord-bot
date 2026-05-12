@@ -21,6 +21,7 @@ type Server struct {
 	sessions   *SessionStore
 	guildRepo  repository.GuildRepository
 	moduleRepo repository.ModuleRepository
+	auditRepo  repository.AuditRepository
 	httpClient *http.Client
 	server     *http.Server
 }
@@ -30,12 +31,14 @@ func NewServer(
 	cfg *config.Config,
 	guildRepo repository.GuildRepository,
 	moduleRepo repository.ModuleRepository,
+	auditRepo repository.AuditRepository,
 ) *Server {
 	srv := &Server{
 		cfg:        cfg,
 		sessions:   NewSessionStore(),
 		guildRepo:  guildRepo,
 		moduleRepo: moduleRepo,
+		auditRepo:  auditRepo,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
@@ -64,6 +67,9 @@ func NewServer(
 		r.Get("/guilds/{guildID}/modules", srv.handleListModules)
 		r.Put("/guilds/{guildID}/modules/{moduleName}", srv.handleSetModuleEnabled)
 		r.Put("/guilds/{guildID}/modules/{moduleName}/config", srv.handleUpdateModuleConfig)
+
+		// Audit log.
+		r.Get("/guilds/{guildID}/audit", srv.handleListAudit)
 	})
 
 	srv.server = &http.Server{
@@ -78,9 +84,7 @@ func NewServer(
 }
 
 // Start démarre le serveur HTTP et lance le GC des sessions en arrière-plan.
-// Bloque jusqu'à l'annulation du contexte puis effectue un graceful shutdown.
 func (srv *Server) Start(ctx context.Context) error {
-	// Goroutine de nettoyage des sessions expirées.
 	go func() {
 		ticker := time.NewTicker(sessionGCInterval)
 		defer ticker.Stop()
@@ -120,7 +124,6 @@ func (srv *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-// handleHealthz retourne 200 OK si la DB est joignable.
 func (srv *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
