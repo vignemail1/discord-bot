@@ -1,5 +1,5 @@
 // cmd/bot est le point d'entrée du bot Discord.
-// Étape 4 : moteur de modules (Registry + Dispatcher).
+// Étape 5 : enregistrement du module invite_filter.
 package main
 
 import (
@@ -14,6 +14,7 @@ import (
 	"github.com/vignemail1/discord-bot/internal/config"
 	"github.com/vignemail1/discord-bot/internal/db"
 	"github.com/vignemail1/discord-bot/internal/module"
+	"github.com/vignemail1/discord-bot/internal/module/invitefilter"
 	"github.com/vignemail1/discord-bot/internal/repository/mariadb"
 )
 
@@ -35,7 +36,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Connexion DB + migrations.
 	conn, err := db.Connect(ctx, cfg.DSN())
 	if err != nil {
 		slog.Error("db: connexion échouée", "err", err)
@@ -48,20 +48,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Repositories.
-	guildRepo  := mariadb.NewGuildRepo(conn)
-	moduleRepo := mariadb.NewModuleRepo(conn)
+	guildRepo   := mariadb.NewGuildRepo(conn)
+	moduleRepo  := mariadb.NewModuleRepo(conn)
+	counterRepo := invitefilter.NewMariaDBCounterRepo(conn)
 
-	// Cache.
 	configCache := cache.New(moduleRepo, cfg.CacheTTL)
 	configCache.Start(ctx)
 
 	// Moteur de modules.
-	// Les modules concrets (invite_filter, …) seront enregistrés ici au step 5+.
-	reg  := module.NewRegistry()
+	reg := module.NewRegistry()
+	reg.MustRegister(invitefilter.New(counterRepo))
+
 	disp := module.NewDispatcher(reg, configCache)
 
-	// Handler Gateway + session.
 	handler := bot.NewHandler(guildRepo, moduleRepo, configCache)
 	session, err := bot.New(cfg.DiscordBotToken, handler, disp)
 	if err != nil {
