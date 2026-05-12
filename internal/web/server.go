@@ -55,9 +55,15 @@ func NewServer(
 	r.Group(func(r chi.Router) {
 		r.Use(srv.requireAuth)
 
+		// Guildes.
 		r.Get("/guilds", srv.handleListGuilds)
 		r.Get("/guilds/{guildID}", srv.handleGetGuild)
 		r.Post("/guilds/{guildID}/install", srv.handleInstallBot)
+
+		// Modules.
+		r.Get("/guilds/{guildID}/modules", srv.handleListModules)
+		r.Put("/guilds/{guildID}/modules/{moduleName}", srv.handleSetModuleEnabled)
+		r.Put("/guilds/{guildID}/modules/{moduleName}/config", srv.handleUpdateModuleConfig)
 	})
 
 	srv.server = &http.Server{
