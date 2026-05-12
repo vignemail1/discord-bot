@@ -1,0 +1,73 @@
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: discordbot-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-discordbot}
+      MARIADB_USER: ${DB_USER:-discordbot}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-change-me}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-change-root-me}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - backend
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: discordbot-bot
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DB_HOST: mariadb
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-discordbot}
+      DB_USER: ${DB_USER:-discordbot}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - backend
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: discordbot-web
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_REDIRECT_URL: ${DISCORD_REDIRECT_URL}
+      DB_HOST: mariadb
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-discordbot}
+      DB_USER: ${DB_USER:-discordbot}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      WEB_LISTEN_ADDR: ${WEB_LISTEN_ADDR:-:8080}
+      SESSION_SECRET: ${SESSION_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    networks:
+      - backend
+
+volumes:
+  mariadb_data:
+
+networks:
+  backend:
+    driver: bridge
