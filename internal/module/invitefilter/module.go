@@ -61,11 +61,13 @@ func (f *InviteFilter) HandleMessage(
 		return nil
 	}
 
-	// Supprimer le message.
-	if err := s.ChannelMessageDelete(m.ChannelID, m.ID); err != nil {
-		slog.Warn("invite_filter: suppression message échouée",
-			"guild_id", m.GuildID, "channel_id", m.ChannelID,
-			"msg_id", m.ID, "err", err)
+	// Supprimer le message (skip si session non disponible, ex. en test unitaire).
+	if s != nil {
+		if err := s.ChannelMessageDelete(m.ChannelID, m.ID); err != nil {
+			slog.Warn("invite_filter: suppression message échouée",
+				"guild_id", m.GuildID, "channel_id", m.ChannelID,
+				"msg_id", m.ID, "err", err)
+		}
 	}
 
 	// Incrémenter le compteur.
@@ -130,6 +132,9 @@ func (f *InviteFilter) writeAudit(
 // --- actions de sanction ---
 
 func (f *InviteFilter) timeout(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate, durationStr string) {
+	if s == nil {
+		return
+	}
 	d, err := time.ParseDuration(durationStr)
 	if err != nil {
 		d = 24 * time.Hour
@@ -148,6 +153,10 @@ func (f *InviteFilter) timeout(ctx context.Context, s *discordgo.Session, m *dis
 }
 
 func (f *InviteFilter) ban(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate, count int) {
+	if s == nil {
+		_ = f.counters.Reset(ctx, m.GuildID, m.Author.ID, ModuleName)
+		return
+	}
 	if err := s.GuildBanCreateWithReason(m.GuildID, m.Author.ID, "invite_filter: liens interdits répétés", 0); err != nil {
 		slog.Error("invite_filter: ban échoué",
 			"guild_id", m.GuildID, "user_id", m.Author.ID, "err", err)
