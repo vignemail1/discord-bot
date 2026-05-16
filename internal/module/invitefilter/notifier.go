@@ -12,8 +12,10 @@ import (
 
 // DiscordSender est l'interface minimale de discordgo.Session utilisée par le notifier.
 // Elle facilite le bouchonnage dans les tests.
+// La signature de ChannelMessageSendEmbed inclut le variadic RequestOption
+// introduit dans discordgo v0.27+ pour être compatible avec l'API réelle.
 type DiscordSender interface {
-	ChannelMessageSendEmbed(channelID string, embed *discordgo.MessageEmbed) (*discordgo.Message, error)
+	ChannelMessageSendEmbed(channelID string, embed *discordgo.MessageEmbed, options ...discordgo.RequestOption) (*discordgo.Message, error)
 }
 
 // actionLabel retourne un libellé lisible et une couleur Discord pour chaque ActionKind.
@@ -51,7 +53,7 @@ func NotifyAction(
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "Utilisateur", Value: fmt.Sprintf("<@%s> (`%s`)", msg.Author.ID, msg.Author.ID), Inline: true},
 		{Name: "Salon", Value: fmt.Sprintf("<#%s>", msg.ChannelID), Inline: true},
-		{Name: "Infraction n°", Value: fmt.Sprintf("%d", count), Inline: true},
+		{Name: "Infraction n\u00b0", Value: fmt.Sprintf("%d", count), Inline: true},
 		{Name: "Codes détectés", Value: "`" + strings.Join(codes, "`, `") + "`", Inline: false},
 	}
 
@@ -67,11 +69,11 @@ func NotifyAction(
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       title,
-		Color:       color,
-		Fields:      fields,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Footer:      &discordgo.MessageEmbedFooter{Text: "invite_filter"},
+		Title:     title,
+		Color:     color,
+		Fields:    fields,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Footer:    &discordgo.MessageEmbedFooter{Text: "invite_filter"},
 	}
 
 	if _, err := s.ChannelMessageSendEmbed(cfg.NotifyChannelID, embed); err != nil {
