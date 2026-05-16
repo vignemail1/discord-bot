@@ -26,7 +26,7 @@ func NewGuildRepository() *GuildRepositoryMock {
 
 // NewGuild est un helper de test.
 func NewGuild(id, name string) repository.Guild {
-	return repository.Guild{GuildID: id, Name: name, Active: true}
+	return repository.Guild{GuildID: id, GuildName: name, Active: true}
 }
 
 // NewModule est un helper de test utilisé par les tests cross-packages.
