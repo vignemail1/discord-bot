@@ -11,6 +11,13 @@ import (
 
 const ModuleName = "identity_history"
 
+// fieldCheck représente un champ à contrôler lors d'un événement d'identité.
+type fieldCheck struct {
+	enabled  bool
+	field    FieldKind
+	newValue string
+}
+
 // IdentityHistory est le module de suivi des changements d'identité des membres.
 type IdentityHistory struct {
 	repo IdentityRepository
@@ -47,21 +54,12 @@ func (h *IdentityHistory) HandleMemberUpdate(
 	}
 	modCfg.defaults()
 
-	guildID := ev.GuildID
-	userID := ev.User.ID
-
-	type fieldCheck struct {
-		enabled  bool
-		field    FieldKind
-		newValue string
-	}
-
 	checks := []fieldCheck{
 		{modCfg.TrackNickname, FieldNickname, ev.Nick},
 		{modCfg.TrackGuildAvatar, FieldGuildAvatar, ev.Avatar},
 	}
 
-	return h.applyChecks(ctx, guildID, userID, checks, "GUILD_MEMBER_UPDATE")
+	return h.applyChecks(ctx, ev.GuildID, ev.User.ID, checks, "GUILD_MEMBER_UPDATE")
 }
 
 // HandleUserUpdate implémente module.UserUpdateHandler.
@@ -80,18 +78,10 @@ func (h *IdentityHistory) HandleUserUpdate(
 	}
 	modCfg.defaults()
 
-	userID := ev.ID
-
 	// Construire le username pleinement qualifié (username#discriminator si non-zero).
 	username := ev.Username
 	if ev.Discriminator != "" && ev.Discriminator != "0" {
 		username = ev.Username + "#" + ev.Discriminator
-	}
-
-	type fieldCheck struct {
-		enabled  bool
-		field    FieldKind
-		newValue string
 	}
 
 	checks := []fieldCheck{
@@ -100,18 +90,14 @@ func (h *IdentityHistory) HandleUserUpdate(
 		{modCfg.TrackAvatar, FieldAvatar, ev.Avatar},
 	}
 
-	return h.applyChecks(ctx, guildID, userID, checks, "USER_UPDATE")
+	return h.applyChecks(ctx, guildID, ev.ID, checks, "USER_UPDATE")
 }
 
 // applyChecks compare les nouvelles valeurs aux dernières connues et insère les changements.
 func (h *IdentityHistory) applyChecks(
 	ctx context.Context,
 	guildID, userID string,
-	checks []struct {
-		enabled  bool
-		field    FieldKind
-		newValue string
-	},
+	checks []fieldCheck,
 	source string,
 ) error {
 	for _, c := range checks {
