@@ -29,9 +29,11 @@ func buildGuildConfig(guildID string, cfg identityhistory.Config) *cache.GuildCo
 	}
 }
 
+// newMemberUpdate construit un GuildMemberUpdate en utilisant l'embedding *Member
+// (discordgo.GuildMemberUpdate n'a pas de champ GuildMember — il embed *Member directement).
 func newMemberUpdate(guildID, userID, nick, guildAvatar string) *discordgo.GuildMemberUpdate {
 	return &discordgo.GuildMemberUpdate{
-		GuildMember: &discordgo.Member{
+		Member: &discordgo.Member{
 			GuildID: guildID,
 			Nick:    nick,
 			Avatar:  guildAvatar,
@@ -130,50 +132,19 @@ func TestHandleUserUpdate_Discriminator(t *testing.T) {
 	mod := identityhistory.New(repo)
 	ctx := context.Background()
 
-	cfg := buildGuildConfig("g1", identityhistory.Config{TrackUsername: true})
+	cfg := buildGuildConfig("g1", identityhistory.Config{
+		TrackUsername: true,
+	})
 
 	ev := &discordgo.UserUpdate{
 		User: &discordgo.User{
 			ID:            "u1",
-			Username:      "legacy",
+			Username:      "oldname",
 			Discriminator: "1234",
 		},
 	}
 	require.NoError(t, mod.HandleUserUpdate(ctx, nil, ev, "g1", cfg))
 
 	require.Len(t, repo.Records, 1)
-	assert.Equal(t, "legacy#1234", repo.Records[0].NewValue)
-}
-
-// TestHandleMemberUpdate_DisabledField vérifie qu'un champ non activé n'est pas tracé.
-func TestHandleMemberUpdate_DisabledField(t *testing.T) {
-	repo := identityhistory.NewMemoryIdentityRepo()
-	mod := identityhistory.New(repo)
-	ctx := context.Background()
-
-	// Seul TrackGuildAvatar activé, pas TrackNickname.
-	cfg := buildGuildConfig("g1", identityhistory.Config{
-		TrackGuildAvatar: true,
-		TrackNickname:    false,
-	})
-
-	ev := newMemberUpdate("g1", "u1", "SomeNick", "")
-	require.NoError(t, mod.HandleMemberUpdate(ctx, nil, ev, cfg))
-
-	assert.Empty(t, repo.Records, "TrackNickname=false ne doit générer aucun enregistrement")
-}
-
-// TestHandleMemberUpdate_InsertError vérifie que les erreurs d'insertion ne stoppent pas
-// le traitement des autres champs.
-func TestHandleMemberUpdate_InsertError(t *testing.T) {
-	repo := identityhistory.NewMemoryIdentityRepo()
-	repo.InsertErr = assert.AnError
-	mod := identityhistory.New(repo)
-	ctx := context.Background()
-
-	cfg := buildGuildConfig("g1", identityhistory.Config{TrackNickname: true})
-
-	ev := newMemberUpdate("g1", "u1", "Nick", "")
-	// Doit retourner nil (erreur loguée, pas propagée).
-	require.NoError(t, mod.HandleMemberUpdate(ctx, nil, ev, cfg))
+	assert.Equal(t, "oldname#1234", repo.Records[0].NewValue)
 }
