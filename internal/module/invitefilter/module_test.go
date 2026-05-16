@@ -76,13 +76,13 @@ func newMsg(guildID, authorID, content string, roles []string) *discordgo.Messag
 
 func TestModule_NoInviteLink_NoAction(t *testing.T) {
 	counters := invitefilter.NewMemoryCounterRepo()
-	mod := invitefilter.New(counters)
 	c := buildCache(t, "g1", invitefilter.Config{})
 	cfgCache, _ := c.Get(context.Background(), "g1")
 
 	fs := &fakeSession{}
 	msg := newMsg("g1", "u1", "hello world", nil)
 
+	mod := invitefilter.New(counters)
 	err := mod.HandleMessage(context.Background(), (*discordgo.Session)(nil), msg, cfgCache)
 	require.NoError(t, err)
 	assert.Empty(t, fs.deletedMessages)
@@ -90,7 +90,6 @@ func TestModule_NoInviteLink_NoAction(t *testing.T) {
 
 func TestModule_AllowedCode_NoAction(t *testing.T) {
 	counters := invitefilter.NewMemoryCounterRepo()
-	mod := invitefilter.New(counters)
 	c := buildCache(t, "g1", invitefilter.Config{AllowedInviteCodes: []string{"monserveur"}})
 	cfgCache, _ := c.Get(context.Background(), "g1")
 
@@ -132,18 +131,10 @@ func TestModule_ForbiddenLink_CounterIncrements(t *testing.T) {
 	counters := invitefilter.NewMemoryCounterRepo()
 	mod := invitefilter.New(counters)
 
-	// Session bouchonée qui implémente uniquement ChannelMessageDelete.
-	type deleter interface {
-		ChannelMessageDelete(string, string) error
-	}
-	// On passe nil pour la session discordgo réelle ; la suppression va logger
-	// une erreur mais ne pas paniquer (nil check dans discordgo).
-	// Pour tester la logique pure du compteur, on vérifie uniquement le compteur.
 	c := buildCache(t, "g1", invitefilter.Config{})
 	cfgCache, _ := c.Get(context.Background(), "g1")
 
 	msg := newMsg("g1", "u3", "discord.gg/badlink", nil)
-	// On appelle HandleMessage avec session nil ; la suppression va échouer silencieusement.
 	_ = mod.HandleMessage(context.Background(), nil, msg, cfgCache)
 
 	count, _ := counters.Get(context.Background(), "g1", "u3", invitefilter.ModuleName)
