@@ -1,5 +1,4 @@
 // cmd/web est le point d'entrée du dashboard HTTP.
-// Étape 7 : serveur HTTP complet — OAuth2 Discord, sessions, middleware auth, routes guildes.
 package main
 
 import (
@@ -41,10 +40,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	guildRepo := mariadb.NewGuildRepository(conn)
-	moduleRepo := mariadb.NewModuleRepository(conn)
+	guildRepo    := mariadb.NewGuildRepo(conn)
+	moduleRepo   := mariadb.NewModuleRepo(conn)
+	auditRepo    := mariadb.NewAuditRepo(conn)
+	identityRepo := mariadb.NewIdentityRepo(conn)
 
-	srv := web.NewServer(cfg, guildRepo, moduleRepo)
+	srv := web.NewServer(cfg, guildRepo, moduleRepo, auditRepo, identityRepo, conn)
 
 	if err := srv.Start(ctx); err != nil {
 		slog.Error("web: erreur fatale", "err", err)
