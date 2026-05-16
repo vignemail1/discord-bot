@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -18,8 +19,8 @@ func (srv *Server) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		ctx := r.Context()
-		ctx = contextWithValue(ctx, contextKeySession, sess)
-		ctx = contextWithValue(ctx, contextKeyUserID, sess.UserID)
+		ctx = context.WithValue(ctx, contextKeySession, sess)
+		ctx = context.WithValue(ctx, contextKeyUserID, sess.UserID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -49,10 +50,4 @@ func slogRequest(next http.Handler) http.Handler {
 			"request_id", middleware.GetReqID(r.Context()),
 		)
 	})
-}
-
-// contextWithValue est un wrapper générique pour context.WithValue avec les clés typées.
-func contextWithValue[V any](ctx interface{ Value(any) any }, key contextKey, val V) interface{ Value(any) any } {
-	// On doit retourner un context.Context — utiliser le vrai type.
-	return contextSet(ctx, key, val)
 }
