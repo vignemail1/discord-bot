@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/jmoiern/sqlx"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/vignemail1/discord-bot/internal/repository"
 )
