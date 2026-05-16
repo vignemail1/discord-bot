@@ -33,7 +33,7 @@ func main() {
 		slog.Error("db: connexion échouée", "err", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err = db.RunMigrations(conn, "./migrations"); err != nil {
 		slog.Error("migrations: échec", "err", err)

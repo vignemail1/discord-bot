@@ -1,7 +1,6 @@
 package config_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,12 +52,12 @@ func TestLoad_InvalidCacheTTL(t *testing.T) {
 }
 
 func TestDSN(t *testing.T) {
-	os.Setenv("DB_HOST", "db")
-	os.Setenv("DB_PORT", "3306")
-	os.Setenv("DB_NAME", "mydb")
-	os.Setenv("DB_USER", "user")
-	os.Setenv("DB_PASSWORD", "pass")
-	os.Setenv("CACHE_TTL_SECONDS", "300")
+	t.Setenv("DB_HOST", "db")
+	t.Setenv("DB_PORT", "3306")
+	t.Setenv("DB_NAME", "mydb")
+	t.Setenv("DB_USER", "user")
+	t.Setenv("DB_PASSWORD", "pass")
+	t.Setenv("CACHE_TTL_SECONDS", "300")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)

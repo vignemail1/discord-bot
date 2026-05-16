@@ -2,7 +2,6 @@ package identityhistory_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,10 +10,6 @@ import (
 
 	"github.com/vignemail1/discord-bot/internal/module/identityhistory"
 )
-
-func marshalConfig(cfg identityhistory.Config) ([]byte, error) {
-	return json.Marshal(cfg)
-}
 
 func TestMemoryRepo_InsertAndListByUser(t *testing.T) {
 	repo := identityhistory.NewMemoryIdentityRepo()
@@ -106,7 +101,7 @@ func TestMemoryRepo_Limit(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_ = repo.Insert(ctx, identityhistory.IdentityRecord{
 			GuildID: "g1", UserID: "u1",
-			Field: identityhistory.FieldUsername,
+			Field:    identityhistory.FieldUsername,
 			OldValue: "", NewValue: "x",
 		})
 	}

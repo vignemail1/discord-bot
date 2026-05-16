@@ -11,7 +11,7 @@ import (
 	"github.com/vignemail1/discord-bot/internal/module/invitefilter"
 )
 
-// fakeSender est un DiscordSender bouchoné qui enregistre les embeds envoyés.
+// fakeSender est un DiscordSender bouchonné qui enregistre les embeds envoyés.
 type fakeSender struct {
 	sentEmbeds []*discordgo.MessageEmbed
 	sendErr    error
@@ -124,7 +124,8 @@ func TestNotifyAction_ContentTruncated(t *testing.T) {
 	require.Len(t, sender.sentEmbeds, 1)
 	for _, f := range sender.sentEmbeds[0].Fields {
 		if f.Name == "Contenu original" {
-			assert.LessOrEqual(t, len(f.Value), 1030, "embed field ne doit pas dépasser 1024 chars utiles + backticks")
+			// La valeur du field doit respecter la limite Discord de 1024 chars.
+			assert.LessOrEqual(t, len(f.Value), 1024, "embed field ne doit pas dépasser 1024 chars")
 		}
 	}
 }

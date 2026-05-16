@@ -30,6 +30,10 @@ func actionLabel(a ActionKind) (label, emoji string, color int) {
 	}
 }
 
+// maxEmbedContent est la limite Discord pour la valeur d'un champ embed (1024 chars).
+// On réserve 8 octets pour les balises code-block : "```\n" (4) + "\n```" (4).
+const maxEmbedContent = 1024 - 8
+
 // NotifyAction publie un embed de notification dans le salon configuré.
 // Les erreurs d'envoi sont loguées mais ne font pas remonter d'erreur :
 // la notification est best-effort et ne doit jamais bloquer la sanction.
@@ -53,14 +57,14 @@ func NotifyAction(
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "Utilisateur", Value: fmt.Sprintf("<@%s> (`%s`)", msg.Author.ID, msg.Author.ID), Inline: true},
 		{Name: "Salon", Value: fmt.Sprintf("<#%s>", msg.ChannelID), Inline: true},
-		{Name: "Infraction n\u00b0", Value: fmt.Sprintf("%d", count), Inline: true},
+		{Name: "Infraction n°", Value: fmt.Sprintf("%d", count), Inline: true},
 		{Name: "Codes détectés", Value: "`" + strings.Join(codes, "`, `") + "`", Inline: false},
 	}
 
 	if cfg.NotifyIncludeContent {
 		content := msg.Content
-		if len(content) > 1024 {
-			content = content[:1021] + "..."
+		if len(content) > maxEmbedContent {
+			content = content[:maxEmbedContent-3] + "..."
 		}
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:  "Contenu original",

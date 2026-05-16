@@ -23,7 +23,7 @@ func newMockDB(t *testing.T) (*sqlx.DB, sqlmock.Sqlmock) {
 
 func TestGuildRepo_Upsert(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec(`INSERT INTO guilds`).
 		WithArgs(
@@ -49,7 +49,7 @@ func TestGuildRepo_Upsert(t *testing.T) {
 
 func TestGuildRepo_Deactivate(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec(`UPDATE guilds SET active`).
 		WithArgs("123").
@@ -64,7 +64,7 @@ func TestGuildRepo_Deactivate(t *testing.T) {
 
 func TestGuildRepo_Get_NotFound(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	cols := []string{"guild_id", "guild_name", "owner_user_id", "bot_joined_at", "active", "created_at", "updated_at"}
 	mock.ExpectQuery(`SELECT .+ FROM guilds WHERE guild_id`).
@@ -80,7 +80,7 @@ func TestGuildRepo_Get_NotFound(t *testing.T) {
 
 func TestGuildRepo_Get_Found(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	now := time.Now().Truncate(time.Second)
 	cols := []string{"guild_id", "guild_name", "owner_user_id", "bot_joined_at", "active", "created_at", "updated_at"}

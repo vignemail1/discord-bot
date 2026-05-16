@@ -84,7 +84,6 @@ func (s *Session) Open(ctx context.Context) error {
 		}
 
 		slog.Info("bot: Gateway connectée")
-		delay = reconnectDelay
 
 		<-ctx.Done()
 		_ = s.DG.Close()

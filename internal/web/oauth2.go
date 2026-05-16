@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	discordAuthURL    = "https://discord.com/api/oauth2/authorize"
-	discordTokenURL   = "https://discord.com/api/oauth2/token"
-	discordRevokeURL  = "https://discord.com/api/oauth2/token/revoke"
-	discordAPIBase    = "https://discord.com/api/v10"
-	oauth2Scope       = "identify guilds"
+	discordAuthURL   = "https://discord.com/api/oauth2/authorize"
+	discordTokenURL  = "https://discord.com/api/oauth2/token"
+	discordRevokeURL = "https://discord.com/api/oauth2/token/revoke"
+	discordAPIBase   = "https://discord.com/api/v10"
+	oauth2Scope      = "identify guilds"
 )
 
 // DiscordUser est la réponse partielle de GET /users/@me.
@@ -194,7 +194,7 @@ func (srv *Server) exchangeCode(ctx context.Context, code string) (*tokenRespons
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
@@ -223,7 +223,7 @@ func (srv *Server) fetchUser(ctx context.Context, accessToken string) (*DiscordU
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
@@ -252,7 +252,7 @@ func (srv *Server) fetchGuilds(ctx context.Context, accessToken string) ([]Disco
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 	if err != nil {
@@ -287,6 +287,6 @@ func (srv *Server) revokeToken(ctx context.Context, accessToken string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return nil
 }
