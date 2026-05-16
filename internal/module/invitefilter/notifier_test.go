@@ -11,13 +11,13 @@ import (
 	"github.com/vignemail1/discord-bot/internal/module/invitefilter"
 )
 
-// fakeSender est un DiscordSender bouchonné qui enregistre les embeds envoyés.
+// fakeSender est un DiscordSender bouchoné qui enregistre les embeds envoyés.
 type fakeSender struct {
 	sentEmbeds []*discordgo.MessageEmbed
 	sendErr    error
 }
 
-func (f *fakeSender) ChannelMessageSendEmbed(channelID string, embed *discordgo.MessageEmbed) (*discordgo.Message, error) {
+func (f *fakeSender) ChannelMessageSendEmbed(channelID string, embed *discordgo.MessageEmbed, options ...discordgo.RequestOption) (*discordgo.Message, error) {
 	if f.sendErr != nil {
 		return nil, f.sendErr
 	}
