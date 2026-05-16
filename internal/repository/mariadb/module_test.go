@@ -16,7 +16,7 @@ import (
 
 func TestModuleRepo_Upsert(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec(`INSERT INTO guild_modules`).
 		WithArgs("111", "invite_filter", true, []byte(`{"foo":"bar"}`)).
@@ -36,7 +36,7 @@ func TestModuleRepo_Upsert(t *testing.T) {
 
 func TestModuleRepo_Get_NotFound(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	cols := []string{"id", "guild_id", "module_name", "enabled", "config_json", "created_at", "updated_at"}
 	mock.ExpectQuery(`SELECT .+ FROM guild_modules WHERE guild_id`).
@@ -52,7 +52,7 @@ func TestModuleRepo_Get_NotFound(t *testing.T) {
 
 func TestModuleRepo_Get_Found(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	now := time.Now().Truncate(time.Second)
 	cols := []string{"id", "guild_id", "module_name", "enabled", "config_json", "created_at", "updated_at"}
@@ -71,7 +71,7 @@ func TestModuleRepo_Get_Found(t *testing.T) {
 
 func TestModuleRepo_SetEnabled(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec(`UPDATE guild_modules SET enabled`).
 		WithArgs(false, "111", "invite_filter").
