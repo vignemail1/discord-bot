@@ -13,8 +13,8 @@ import (
 
 // Handler reçoit les événements Discord et orchestre les réponses.
 type Handler struct {
-	guildRepo  repository.GuildRepository
-	moduleRepo repository.ModuleRepository
+	guildRepo   repository.GuildRepository
+	moduleRepo  repository.ModuleRepository
 	configCache *cache.GuildConfigCache
 }
 
@@ -49,9 +49,9 @@ func (h *Handler) onGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) 
 // HandleGuildCreate persiste la guilde et pré-popule le cache de config.
 func (h *Handler) HandleGuildCreate(ctx context.Context, g *discordgo.Guild) {
 	if err := h.guildRepo.Upsert(ctx, repository.Guild{
-		GuildID: g.ID,
-		Name:    g.Name,
-		Active:  true,
+		GuildID:   g.ID,
+		GuildName: g.Name,
+		Active:    true,
 	}); err != nil {
 		slog.Error("bot: GUILD_CREATE — upsert guilde échoué",
 			"guild_id", g.ID, "err", err)
